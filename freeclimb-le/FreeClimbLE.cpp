@@ -22,7 +22,7 @@
 #include <shlobj.h>
 
 #define PLUGIN_NAME				"FreeClimbLE"
-#define PLUGIN_VERSION_STRING	"0.29.0 (versao final: escorregar com Shift+S; seguidor desativado)"
+#define PLUGIN_VERSION_STRING	"0.30.0 (fall damage fix, vertical wall run height, camera diagnostics)"
 #define PLUGIN_LOG_FILE			"\\My Games\\Skyrim\\SKSE\\FreeClimbLE.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;

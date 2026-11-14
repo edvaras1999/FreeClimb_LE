@@ -21,6 +21,7 @@
 #include "PackLoader.h"
 #include "SceneHooks.h"
 #include "Options.h"
+#include "skse/GameCamera.h"
 
 #include "skse/GameInput.h"
 #include "skse/GameReferences.h"
@@ -57,6 +58,7 @@ namespace
 	float			g_yawOff = 0.0f, g_yawOffVel = 0.0f, g_prevGoalYaw = 0.0f;
 	bool			g_yawInit = false, g_prevGoalValid = false;
 	float			g_moveT = 0.0f;
+	float			g_runLift = 0.0f;				// quanto se sobe o corpo (unidades): so na corrida vertical, a rampa da mistura trepar -> correr
 	float			g_slideV = 0.0f;				// velocidade atual do escorregar (Shift + S), unidades/s
 	DWORD			g_slideSoundTick = 0;
 	float			g_fitDelta[4] = { 0, 0, 0, 0 };		// quanto cada membro deve avancar para tocar na superficie medida
@@ -128,6 +130,16 @@ namespace
 	{
 		g_pos[0] += g_off[0]; g_pos[1] += g_off[1];
 		g_off[0] = g_off[1] = g_offVel[0] = g_offVel[1] = 0.0f;
+	}
+
+	// O jogo mede o dano de queda desde o ponto mais alto em que o controlador esteve "no ar". Enquanto estamos agarrados o
+	// controlador esta no ar, por isso, ao tocar no chao depois de escorregar de um sitio alto, o dano seria o da altura toda.
+	// Repomos a altura e o tempo de queda para a posicao atual: a queda so conta a partir do ponto onde se larga.
+	void ResetFall(Actor * player, void * ctrl)
+	{
+		if(!player || !ctrl) return;
+		Engine::ControllerFallStart(ctrl) = Engine::Position(player).z;		// em unidades do jogo (como no modulo de deslize do FreeRun)
+		Engine::ControllerFallTime(ctrl) = 0.0f;
 	}
 
 	// ---- estamina (propria do FreeClimb; valores no .ini/menu, em % da estamina maxima)
@@ -240,7 +252,7 @@ namespace
 			if(!FC_BuildPose(m, 0.0f, 0, 0, g_cfg.gap, 0, 0, dt, false, g_pose)) return;
 		}
 		if(style == FC_STYLE_WALL) SurfaceFit(g_pose, m, phase);		// maos e pes na superficie real (so nos ciclos da parede)
-		if(style == FC_STYLE_RUN) g_pose[2] += g_cfg.runHeight;		// afinacao opcional da altura do corpo na corrida
+		if(g_state == kCling) g_pose[2] += g_runLift;		// centra o corpo deitado da corrida vertical na altura a que a camera olha (so agarrado)
 		SceneHooksSetPose(true, g_pose, m * 16 + (direction & 15), blend < 0.0f ? g_cfg.motionBlend : blend);
 	}
 
@@ -410,7 +422,7 @@ namespace
 		ResetSmooth();
 		Actor * player = ThePlayer();
 		void * ctrl = player ? Engine::CharController(player) : NULL;
-		if(ctrl) PlaceController(ctrl, g_destX, g_destY, g_destZ + 1.0f);
+		if(ctrl) { PlaceController(ctrl, g_destX, g_destY, g_destZ + 1.0f); ResetFall(player, ctrl); }
 		HidePose();
 		InterlockedExchange(&g_state, kIdle);
 		_MESSAGE("gameplay: climb finished - player on top at (%.0f %.0f %.0f)", (double)g_destX, (double)g_destY, (double)g_destZ);
@@ -462,10 +474,12 @@ namespace
 	void Release(const char * why, float pushSpeed = 60.0f)
 	{
 		FollowersReleaseAll();
+		g_runLift = 0.0f;
 		CommitView();
 		ResetSmooth();
 		Actor * player = ThePlayer();
 		void * ctrl = player ? Engine::CharController(player) : NULL;
+		ResetFall(player, ctrl);		// a queda conta a partir do ponto onde se larga (no chao: sem dano)
 		if(ctrl)
 		{
 			// um pequeno empurrao para longe da parede, para nao ficar encostado a geometria ao cair
@@ -488,6 +502,7 @@ namespace
 		g_prevContactMotion = 0;
 		for(int k = 0; k < 4; ++k) g_fitDelta[k] = 0.0f;
 		g_slideV = 0.0f;
+		g_runLift = 0.0f;
 		Show(kHang, 0.0f, 0, FC_STYLE_WALL);
 		Options::PlaySoundFx(Options::kSndGrip);
 		InterlockedExchange(&g_state, kCling);
@@ -753,6 +768,36 @@ namespace
 		}
 	}
 
+	// Diagnostico (Verbose=1): uma linha por segundo com a posicao da camara em relacao ao personagem e a parede.
+	// 'side' < 0 = a camara esta do lado da parede; 'blocked' = ha geometria entre a cabeca e a camara.
+	DWORD g_camLogTick = 0;
+	void LogCamera(Actor * player, DWORD now)
+	{
+		if(!g_cfg.verbose || (DWORD)(now - g_camLogTick) < 1000) return;
+		g_camLogTick = now;
+		PlayerCamera * camera = PlayerCamera::GetSingleton();
+		if(!camera || !Engine::Readable(camera, 0x20) || !camera->cameraNode || !Engine::Readable(camera->cameraNode, 0x90)) return;
+
+		const NiPoint3 cam = camera->cameraNode->m_worldTransform.pos;
+		const NiPoint3 feet = Engine::Position(player);
+		const float dx = cam.x - feet.x, dy = cam.y - feet.y, dz = cam.z - feet.z;
+		const float flat = sqrtf(dx * dx + dy * dy), dist = sqrtf(dx * dx + dy * dy + dz * dz);
+		const float side = dx * g_n[0] + dy * g_n[1];				// > 0: a camara esta do lado do personagem; < 0: do lado da parede
+		bool blocked = false;
+		if(dist > 20.0f)
+		{
+			const NiPoint3 head(feet.x, feet.y, feet.z + 110.0f);
+			const float hx = cam.x - head.x, hy = cam.y - head.y, hz = cam.z - head.z, hl = sqrtf(hx * hx + hy * hy + hz * hz);
+			if(hl > 20.0f)
+			{
+				const Havok::Result r = Havok::RayCast(head, NiPoint3(hx / hl, hy / hl, hz / hl), hl, Havok::kLayer_Transparent, player);
+				blocked = r.didHit && r.distance < hl - 8.0f;
+			}
+		}
+		_MESSAGE("camera: distance %.0f (horizontal %.0f, height %+.0f), side %+.0f%s%s", (double)dist, (double)flat, (double)dz, (double)side,
+				 side < 10.0f ? " - ON THE WALL SIDE" : "", blocked ? " - BLOCKED by geometry" : "");
+	}
+
 	// Caminho de um salto que SEGUE a superficie (pilares, arvores): pontos x, y, z e a normal (nx, ny) em cada um.
 	enum { kMaxHopPath = 40 };
 	float			g_hopPath[kMaxHopPath][5];
@@ -959,6 +1004,7 @@ namespace
 		g_fpsAvg += ((frameDt > 0.0005f ? 1.0f / frameDt : 60.0f) - g_fpsAvg) * 0.05f;
 		// estamina: enquanto esta na parede a regeneracao fica suspensa (so aqui: em idle ja saimos acima)
 		if(g_cfg.staminaOn && g_cfg.stBlockRegen && !g_exhausted) Engine::UpdateRegenDelay(player, Engine::kActorValue_Stamina, 1.0f);
+		ResetFall(player, ctrl);		// agarrado (ou a saltar/apanhar/passar a borda): nao ha queda a contar
 		if(g_state == kTopOut) { g_lastTick = now; TickMantle(ctrl, now); return; }
 		if(g_state == kHop) { g_lastTick = now; TickHop(player, ctrl, now); return; }
 		if(g_state == kCatch) { g_lastTick = now; TickCatch(player, ctrl, now); return; }
@@ -1042,6 +1088,12 @@ namespace
 			if(iy < 0.0f) g_runBlend = 0.0f;
 		}
 		const float mode = g_runBlend * g_runBlend * (3.0f - 2.0f * g_runBlend);
+		{
+			// so a corrida vertical (o corpo deitado) precisa de subir; na lateral/diagonal o corpo ja esta a altura certa
+			float vertical = 1.0f - fabsf(ix) / 0.5f;
+			if(vertical < 0.0f) vertical = 0.0f;
+			g_runLift = g_cfg.runHeight * mode * vertical;
+		}
 		const bool diagonal = fabsf(ix) > 0.1f && fabsf(iy) > 0.1f;
 		const float runSp = g_cfg.wallRunSpeed * (diagonal ? g_cfg.wallRunDiag : 1.0f);
 		// Velocidades: por defeito as do PROPRIO CLIP (distancia por ciclo / duracao), para os pes nao patinarem e a animacao
@@ -1255,6 +1307,7 @@ namespace
 		PlaceView(ctrl);
 		ShowCling();
 		FollowerTick(player, dt);
+		LogCamera(player, now);
 	}
 
 	// ------------------------------------------------------------------ teclas

@@ -27,84 +27,84 @@ namespace
 
 	Opt g_opts[] =
 	{
-		{ NULL, 0, NULL, 0, 0, 0, "ESCALADA" },
-		{ "Reach",			'f', &g_cfg.reach,			110.0f,	30.0f,	300.0f,	"Ate onde procura a parede quando carrega em saltar (alcance)." },
-		{ "WallGap",		'f', &g_cfg.gap,			30.0f,	10.0f,	80.0f,	"Distancia do personagem a parede enquanto agarrado (30 e a do mod original)." },
-		{ "AttachReach",	'f', &g_cfg.attachReach,	65.0f,	10.0f,	200.0f,	"Distancia maxima a parede para se agarrar (o personagem e puxado ate ela)." },
-		{ "AirReach",		'f', &g_cfg.airReach,		90.0f,	10.0f,	300.0f,	"Alcance para apanhar uma parede a meio de um salto." },
-		{ "AlwaysCling",	'i', &g_cfg.alwaysCling,	1.0f,	0.0f,	1.0f,	"1 = o salto junto a uma parede agarra-se sempre; 0 = passa por cima se for baixa." },
-		{ "EntryMode",		'i', &g_cfg.entryMode,		0.0f,	0.0f,	1.0f,	"0 = Salto sozinho junto a uma parede; 1 = Salto + W + A + D juntos (como o original)." },
-		{ "FaceWall",		'i', &g_cfg.faceWall,		1.0f,	0.0f,	1.0f,	"1 = vira o personagem de frente para a parede." },
-		{ "MinLedge",		'f', &g_cfg.minLedge,		80.0f,	20.0f,	300.0f,	"Altura minima (acima dos pes) de uma borda a passar por cima." },
-		{ "MaxLedge",		'f', &g_cfg.maxLedge,		180.0f,	40.0f,	400.0f,	"Altura maxima de uma borda a passar por cima." },
-		{ "HeadHeight",		'f', &g_cfg.headHeight,		125.0f,	60.0f,	250.0f,	"Altura da cabeca: onde se procura o topo da parede." },
-		{ "Warp",			'i', &g_cfg.warp,			1.0f,	0.0f,	1.0f,	"1 = o controlador e teletransportado a cada atualizacao." },
+		{ NULL, 0, NULL, 0, 0, 0, "CLIMBING" },
+		{ "Reach",			'f', &g_cfg.reach,			110.0f,	30.0f,	300.0f,	"Max distance to look for a wall when jump is pressed." },
+		{ "WallGap",		'f', &g_cfg.gap,			30.0f,	10.0f,	80.0f,	"Distance from the character to the wall while clinging (30 = original mod)." },
+		{ "AttachReach",	'f', &g_cfg.attachReach,	65.0f,	10.0f,	200.0f,	"Max distance to the wall to cling (the character is pulled to it)." },
+		{ "AirReach",		'f', &g_cfg.airReach,		90.0f,	10.0f,	300.0f,	"Reach to catch a wall in mid-air." },
+		{ "AlwaysCling",	'i', &g_cfg.alwaysCling,	1.0f,	0.0f,	1.0f,	"1 = jumping next to a wall always clings; 0 = low walls are vaulted instead." },
+		{ "EntryMode",		'i', &g_cfg.entryMode,		0.0f,	0.0f,	1.0f,	"0 = Jump alone next to a wall; 1 = Jump + W + A + D together (original behaviour)." },
+		{ "FaceWall",		'i', &g_cfg.faceWall,		1.0f,	0.0f,	1.0f,	"1 = turn the character to face the wall." },
+		{ "MinLedge",		'f', &g_cfg.minLedge,		80.0f,	20.0f,	300.0f,	"Min ledge height (above the feet) to climb over." },
+		{ "MaxLedge",		'f', &g_cfg.maxLedge,		180.0f,	40.0f,	400.0f,	"Max ledge height to climb over." },
+		{ "HeadHeight",		'f', &g_cfg.headHeight,		125.0f,	60.0f,	250.0f,	"Head height: where the top of the wall is searched." },
+		{ "Warp",			'i', &g_cfg.warp,			1.0f,	0.0f,	1.0f,	"1 = warp the character controller every update." },
 
-		{ NULL, 0, NULL, 0, 0, 0, "VELOCIDADE (0 = automatico: a velocidade do proprio clip)" },
-		{ "ClimbSpeed",		'f', &g_cfg.climbSpeed,		0.0f,	0.0f,	300.0f,	"Subir (unidades por segundo). O original usa 100." },
-		{ "DownSpeed",		'f', &g_cfg.downSpeed,		0.0f,	0.0f,	300.0f,	"Descer. O original usa 78." },
-		{ "SideSpeed",		'f', &g_cfg.sideSpeed,		0.0f,	0.0f,	300.0f,	"Andar de lado. O original usa 82." },
-		{ "SpeedScale",		'f', &g_cfg.speedScale,		1.0f,	0.25f,	3.0f,	"Multiplica todas as velocidades automaticas." },
-		{ "StartSpeed",		'f', &g_cfg.startSpeed,		0.45f,	0.05f,	1.0f,	"Fracao da velocidade ao comecar a mexer (1 = sem rampa)." },
-		{ "RampSeconds",	'f', &g_cfg.rampSeconds,		0.7f,	0.0f,	3.0f,	"Segundos ate a velocidade completa." },
-		{ "WallRunSpeed",	'f', &g_cfg.wallRunSpeed,	379.5f,	100.0f,	800.0f,	"Corrida na parede (Shift)." },
-		{ "WallRunDiagonal",'f', &g_cfg.wallRunDiag,	1.15f,	0.5f,	2.0f,	"Multiplicador da corrida na diagonal." },
+		{ NULL, 0, NULL, 0, 0, 0, "SPEED (0 = automatic: the clip's own speed)" },
+		{ "ClimbSpeed",		'f', &g_cfg.climbSpeed,		0.0f,	0.0f,	300.0f,	"Climb speed, units/s. Original mod: 100." },
+		{ "DownSpeed",		'f', &g_cfg.downSpeed,		0.0f,	0.0f,	300.0f,	"Descend speed, units/s. Original mod: 78." },
+		{ "SideSpeed",		'f', &g_cfg.sideSpeed,		0.0f,	0.0f,	300.0f,	"Sideways speed, units/s. Original mod: 82." },
+		{ "SpeedScale",		'f', &g_cfg.speedScale,		1.0f,	0.25f,	3.0f,	"Multiplier for all automatic speeds." },
+		{ "StartSpeed",		'f', &g_cfg.startSpeed,		0.45f,	0.05f,	1.0f,	"Fraction of the speed when starting to move (1 = no ramp)." },
+		{ "RampSeconds",	'f', &g_cfg.rampSeconds,		0.7f,	0.0f,	3.0f,	"Seconds to reach full speed." },
+		{ "WallRunSpeed",	'f', &g_cfg.wallRunSpeed,	379.5f,	100.0f,	800.0f,	"Wall run speed (Shift + direction), units/s." },
+		{ "WallRunDiagonal",'f', &g_cfg.wallRunDiag,	1.15f,	0.5f,	2.0f,	"Wall run speed multiplier on diagonals." },
 
-		{ NULL, 0, NULL, 0, 0, 0, "SALTOS" },
-		{ "HopScale",		'f', &g_cfg.hopScale,		1.8f,	0.5f,	4.0f,	"Multiplica a distancia dos saltos na parede." },
-		{ "HopSpeed",		'f', &g_cfg.hopSpeed,		1.1f,	0.5f,	3.0f,	"Multiplica a velocidade dos saltos." },
-		{ "HopEase",		'i', &g_cfg.hopEase,		1.0f,	0.0f,	1.0f,	"1 = salto suave (comeca e acaba devagar)." },
-		{ "HopProbe",		'i', &g_cfg.hopProbe,		1.0f,	0.0f,	1.0f,	"1 = mede a parede no destino; sem parede o salto sai normal e o personagem cai." },
-		{ "ContextHops",	'i', &g_cfg.contextHops,	1.0f,	0.0f,	1.0f,	"1 = salta sozinho para a parede seguinte quando a atual acaba." },
-		{ "CatchSpeed",		'f', &g_cfg.catchSpeed,		1.5f,	0.5f,	3.0f,	"Velocidade da animacao de apanhar a parede." },
+		{ NULL, 0, NULL, 0, 0, 0, "HOPS" },
+		{ "HopScale",		'f', &g_cfg.hopScale,		1.8f,	0.5f,	4.0f,	"Hop distance multiplier." },
+		{ "HopSpeed",		'f', &g_cfg.hopSpeed,		1.1f,	0.5f,	3.0f,	"Hop speed multiplier." },
+		{ "HopEase",		'i', &g_cfg.hopEase,		1.0f,	0.0f,	1.0f,	"1 = smooth hops (ease in and out)." },
+		{ "HopProbe",		'i', &g_cfg.hopProbe,		1.0f,	0.0f,	1.0f,	"1 = read the wall before hopping; with no wall ahead the hop is a normal jump and you fall." },
+		{ "ContextHops",	'i', &g_cfg.contextHops,	1.0f,	0.0f,	1.0f,	"1 = hop automatically to the next wall when this one ends." },
+		{ "CatchSpeed",		'f', &g_cfg.catchSpeed,		1.5f,	0.5f,	3.0f,	"Grab animation speed multiplier." },
 
-		{ NULL, 0, NULL, 0, 0, 0, "ESCORREGAR (Shift + S)" },
-		{ "SlideEnabled",	'i', &g_cfg.slideOn,			1.0f,	0.0f,	1.0f,	"Shift + S na parede: escorrega para baixo, acelerando; ao largar trava e fica agarrado." },
-		{ "SlideMaxSpeed",	'f', &g_cfg.slideMax,		280.0f,	50.0f,	600.0f,	"Velocidade maxima do escorregar (unidades por segundo)." },
-		{ "SlideAccel",		'f', &g_cfg.slideAccel,		220.0f,	50.0f,	1200.0f,	"Aceleracao do escorregar (unidades por segundo ao quadrado)." },
-		{ "SlideStamina",	'f', &g_cfg.slideStamina,	1.0f,	0.0f,	30.0f,	"Custo de estamina por segundo a escorregar (% do maximo)." },
+		{ NULL, 0, NULL, 0, 0, 0, "SLIDE (Shift + S)" },
+		{ "SlideEnabled",	'i', &g_cfg.slideOn,			1.0f,	0.0f,	1.0f,	"1 = Shift + S on the wall slides down, accelerating; release to brake and keep hanging." },
+		{ "SlideMaxSpeed",	'f', &g_cfg.slideMax,		280.0f,	50.0f,	600.0f,	"Slide top speed, units/s." },
+		{ "SlideAccel",		'f', &g_cfg.slideAccel,		220.0f,	50.0f,	1200.0f,	"Slide acceleration, units/s^2." },
+		{ "SlideStamina",	'f', &g_cfg.slideStamina,	1.0f,	0.0f,	30.0f,	"Slide stamina cost, % of max per second." },
 
-		{ NULL, 0, NULL, 0, 0, 0, "SUAVIDADE E MOTOR DE POSE" },
-		{ "TurnSmooth",		'f', &g_cfg.turnSmooth,		0.15f,	0.0f,	0.6f,	"Suavidade da rotacao do corpo para a parede, em segundos (0 = instantaneo)." },
-		{ "TurnSpeed",		'f', &g_cfg.turnSpeed,		540.0f,	60.0f,	1440.0f,	"Velocidade maxima de rotacao (graus por segundo)." },
-		{ "PosSmooth",		'f', &g_cfg.posSmooth,		0.10f,	0.0f,	0.5f,	"Suavidade da posicao ao mudar de parede, em segundos." },
-		{ "PoseMode",		'i', &g_cfg.poseMode,		1.0f,	0.0f,	1.0f,	"1 = pose escrita antes da passagem do jogo (recomendado); 0 = modo antigo." },
-		{ "EntryBlend",		'f', &g_cfg.entryBlend,		0.14f,	0.0f,	1.0f,	"Fusao ao entrar na pose da escalada (segundos)." },
-		{ "ExitBlend",		'f', &g_cfg.exitBlend,		0.22f,	0.0f,	1.5f,	"Fusao ao sair da pose (segundos)." },
-		{ "MotionBlend",	'f', &g_cfg.motionBlend,	0.15f,	0.0f,	1.0f,	"Fusao ao trocar de animacao (segundos)." },
-		{ "RunHeight",		'f', &g_cfg.runHeight,		0.0f,	-80.0f,	120.0f,	"Altura do corpo na corrida na parede (unidades)." },
+		{ NULL, 0, NULL, 0, 0, 0, "SMOOTHING AND POSE ENGINE" },
+		{ "TurnSmooth",		'f', &g_cfg.turnSmooth,		0.15f,	0.0f,	0.6f,	"Turn smoothing, seconds (0 = instant)." },
+		{ "TurnSpeed",		'f', &g_cfg.turnSpeed,		540.0f,	60.0f,	1440.0f,	"Max turn speed, degrees/s." },
+		{ "PosSmooth",		'f', &g_cfg.posSmooth,		0.10f,	0.0f,	0.5f,	"Position smoothing when the wall changes direction, seconds (0 = instant)." },
+		{ "PoseMode",		'i', &g_cfg.poseMode,		1.0f,	0.0f,	1.0f,	"1 = write the pose before the game update (recommended); 0 = legacy method." },
+		{ "EntryBlend",		'f', &g_cfg.entryBlend,		0.14f,	0.0f,	1.0f,	"Blend-in time into the climbing pose, seconds." },
+		{ "ExitBlend",		'f', &g_cfg.exitBlend,		0.22f,	0.0f,	1.5f,	"Blend-out time back to the game pose, seconds." },
+		{ "MotionBlend",	'f', &g_cfg.motionBlend,	0.15f,	0.0f,	1.0f,	"Blend time between moves, seconds." },
+		{ "RunHeight",		'f', &g_cfg.runHeight,		60.0f,	-80.0f,	160.0f,	"Raises the body during the VERTICAL wall run (Shift + W) to center it on the camera. Sideways and diagonal runs are not affected." },
 
-		{ NULL, 0, NULL, 0, 0, 0, "ESTAMINA (percentagem da estamina maxima)" },
-		{ "StaminaEnabled",	'i', &g_cfg.staminaOn,		1.0f,	0.0f,	1.0f,	"Liga a estamina da escalada." },
-		{ "StaminaHang",	'f', &g_cfg.stHang,			1.0f,	0.0f,	30.0f,	"Custo por segundo agarrado parado." },
-		{ "StaminaClimb",	'f', &g_cfg.stClimb,		3.0f,	0.0f,	30.0f,	"Custo por segundo a subir." },
-		{ "StaminaDown",	'f', &g_cfg.stDown,			1.5f,	0.0f,	30.0f,	"Custo por segundo a descer." },
-		{ "StaminaSide",	'f', &g_cfg.stSide,			3.0f,	0.0f,	30.0f,	"Custo por segundo a andar de lado." },
-		{ "StaminaRun",		'f', &g_cfg.stRun,			8.0f,	0.0f,	50.0f,	"Custo por segundo a correr na parede." },
-		{ "StaminaHop",		'f', &g_cfg.stHop,			6.0f,	0.0f,	60.0f,	"Custo de cada salto." },
-		{ "StaminaMantle",	'f', &g_cfg.stMantle,		4.0f,	0.0f,	60.0f,	"Custo de passar a borda." },
-		{ "StaminaScale",	'f', &g_cfg.stScale,		1.0f,	0.1f,	5.0f,	"Multiplicador de dificuldade de todos os custos." },
-		{ "StaminaBlockRegen",'i', &g_cfg.stBlockRegen,	1.0f,	0.0f,	1.0f,	"1 = a regeneracao fica suspensa enquanto esta na parede." },
-		{ "StaminaSlideSpeed",'f', &g_cfg.stSlideSpeed,	25.0f,	0.0f,	120.0f,	"Sem estamina, escorrega para baixo a esta velocidade (unidades/s)." },
-		{ "StaminaResume",	'f', &g_cfg.stResume,		15.0f,	0.0f,	100.0f,	"Percentagem de estamina para voltar a poder subir depois de esgotar." },
+		{ NULL, 0, NULL, 0, 0, 0, "STAMINA (percent of max stamina)" },
+		{ "StaminaEnabled",	'i', &g_cfg.staminaOn,		1.0f,	0.0f,	1.0f,	"1 = climbing costs stamina." },
+		{ "StaminaHang",	'f', &g_cfg.stHang,			1.0f,	0.0f,	30.0f,	"Cost per second hanging still, % of max." },
+		{ "StaminaClimb",	'f', &g_cfg.stClimb,		3.0f,	0.0f,	30.0f,	"Cost per second climbing, % of max." },
+		{ "StaminaDown",	'f', &g_cfg.stDown,			1.5f,	0.0f,	30.0f,	"Cost per second descending, % of max." },
+		{ "StaminaSide",	'f', &g_cfg.stSide,			3.0f,	0.0f,	30.0f,	"Cost per second moving sideways, % of max." },
+		{ "StaminaRun",		'f', &g_cfg.stRun,			8.0f,	0.0f,	50.0f,	"Cost per second wall running, % of max." },
+		{ "StaminaHop",		'f', &g_cfg.stHop,			6.0f,	0.0f,	60.0f,	"Cost of each hop, % of max." },
+		{ "StaminaMantle",	'f', &g_cfg.stMantle,		4.0f,	0.0f,	60.0f,	"Cost of pulling over a ledge, % of max (never refused)." },
+		{ "StaminaScale",	'f', &g_cfg.stScale,		1.0f,	0.1f,	5.0f,	"Difficulty multiplier for every stamina cost." },
+		{ "StaminaBlockRegen",'i', &g_cfg.stBlockRegen,	1.0f,	0.0f,	1.0f,	"1 = no stamina regeneration on the wall (it still regenerates while sliding after running out)." },
+		{ "StaminaSlideSpeed",'f', &g_cfg.stSlideSpeed,	25.0f,	0.0f,	120.0f,	"With no stamina, slide down at this speed, units/s." },
+		{ "StaminaResume",	'f', &g_cfg.stResume,		15.0f,	0.0f,	100.0f,	"Stamina % needed to climb again after running out." },
 
-		{ NULL, 0, NULL, 0, 0, 0, "SONS" },
-		{ "SoundEnabled",	'i', &g_cfg.soundOn,		1.0f,	0.0f,	1.0f,	"Liga os sons da escalada (agarrar, passos, impulso, topo)." },
-		{ "SoundVolume",	'f', &g_cfg.soundVolume,	1.0f,	0.0f,	1.0f,	"Volume dos sons da escalada." },
-		{ "SoundGapMs",		'f', &g_cfg.soundGapMs,		140.0f,	0.0f,	1000.0f,	"Intervalo minimo entre repeticoes do mesmo som (milissegundos)." },
+		{ NULL, 0, NULL, 0, 0, 0, "SOUND" },
+		{ "SoundEnabled",	'i', &g_cfg.soundOn,		1.0f,	0.0f,	1.0f,	"1 = play climbing sounds (grab, steps, push-off, ledge)." },
+		{ "SoundVolume",	'f', &g_cfg.soundVolume,	1.0f,	0.0f,	1.0f,	"Climbing sounds volume, 0 to 1." },
+		{ "SoundGapMs",		'f', &g_cfg.soundGapMs,		140.0f,	0.0f,	1000.0f,	"Min gap between repeats of the same sound, milliseconds." },
 
-		{ NULL, 0, NULL, 0, 0, 0, "COMANDO ANALOGICO" },
-		{ "AnalogEnabled",	'i', &g_cfg.analogOn,		1.0f,	0.0f,	1.0f,	"Usa o analogico para direcao e velocidade continuas." },
-		{ "AnalogDeadZone",	'f', &g_cfg.analogDead,		0.25f,	0.0f,	0.8f,	"Zona morta do analogico (0 a 1)." },
+		{ NULL, 0, NULL, 0, 0, 0, "GAMEPAD" },
+		{ "AnalogEnabled",	'i', &g_cfg.analogOn,		1.0f,	0.0f,	1.0f,	"1 = left stick gives continuous direction and speed." },
+		{ "AnalogDeadZone",	'f', &g_cfg.analogDead,		0.25f,	0.0f,	0.8f,	"Left stick dead zone, 0 to 1." },
 
-		{ NULL, 0, NULL, 0, 0, 0, "MAOS E PES NA SUPERFICIE (raios)" },
-		{ "SurfaceFit",		'i', &g_cfg.fitOn,			1.0f,	0.0f,	1.0f,	"Ajusta maos e pes a superficie real (arvores, rochas, paredes irregulares)." },
-		{ "FitRays",		'i', &g_cfg.fitRays,		4.0f,	1.0f,	12.0f,	"Orcamento de raios por atualizacao (mais = mais preciso, mais pesado)." },
-		{ "FitMinFps",		'f', &g_cfg.fitMinFps,		35.0f,	10.0f,	120.0f,	"Abaixo destes fps o ajuste usa menos raios sozinho." },
+		{ NULL, 0, NULL, 0, 0, 0, "HANDS AND FEET ON THE SURFACE (rays)" },
+		{ "SurfaceFit",		'i', &g_cfg.fitOn,			1.0f,	0.0f,	1.0f,	"1 = hands and feet follow the real surface (trees, rocks, uneven walls) using rays." },
+		{ "FitRays",		'i', &g_cfg.fitRays,		4.0f,	1.0f,	12.0f,	"Rays per update for surface fitting (max 4 are used)." },
+		{ "FitMinFps",		'f', &g_cfg.fitMinFps,		35.0f,	10.0f,	120.0f,	"Below this frame rate only 1 ray per update is used." },
 
-		{ NULL, 0, NULL, 0, 0, 0, "MENU E DIAGNOSTICO" },
-		{ "Language",		'i', &g_cfg.language,		0.0f,	0.0f,	1.0f,	"Idioma do menu: 0 = English, 1 = Portugues." },
-		{ "Verbose",		'i', &g_cfg.verbose,		0.0f,	0.0f,	1.0f,	"1 = registo detalhado (o log fica grande)." },
+		{ NULL, 0, NULL, 0, 0, 0, "MENU AND DIAGNOSTICS" },
+		{ "Language",		'i', &g_cfg.language,		0.0f,	0.0f,	1.0f,	"Menu language: 0 = English, 1 = Portugues." },
+		{ "Verbose",		'i', &g_cfg.verbose,		0.0f,	0.0f,	1.0f,	"1 = detailed log (also logs the camera position while clinging)." },
 	};
 	const int kNumOpts = sizeof(g_opts) / sizeof(g_opts[0]);
 
@@ -236,8 +236,8 @@ namespace
 		std::string out;
 		out += "; FreeClimbLE.ini - ";
 		out += title;
-		out += "\r\n; Escrito pelo menu do FreeClimb (MCM) e pelo proprio plugin. Pode editar a mao: e relido\r\n";
-		out += "; sozinho na proxima vez que se agarrar a uma parede. Unidades do Skyrim: 1 unidade ~ 1,4 cm.\r\n\r\n[";
+		out += "\r\n; Written by the in-game menu (MCM) and by the plugin. Hand edits are reloaded the next time you grab a wall.\r\n";
+		out += "; Units are Skyrim units (1 unit ~ 1.4 cm).\r\n\r\n[";
 		out += kSection;
 		out += "]\r\n";
 
@@ -268,7 +268,7 @@ namespace
 	bool WriteIni()
 	{
 		if(!g_iniPath[0]) return false;
-		const bool ok = WriteWholeFile(g_iniPath, BuildText("afinacoes da escalada"));
+		const bool ok = WriteWholeFile(g_iniPath, BuildText("settings"));
 		RefreshStamp();
 		if(!ok) _MESSAGE("options: could not write %s", g_iniPath);
 		return ok;
@@ -367,7 +367,7 @@ namespace
 	{
 		char path[MAX_PATH];
 		if(!UserIniPath(path, sizeof(path))) { _MESSAGE("menu: cannot save the user profile (no ini path)"); return; }
-		const bool ok = WriteWholeFile(path, BuildText("o seu perfil (guardado pelo menu)"));
+		const bool ok = WriteWholeFile(path, BuildText("user profile (saved from the menu)"));
 		_MESSAGE("menu: user profile %s: %s", ok ? "saved to" : "FAILED to save to", path);
 	}
 
@@ -476,8 +476,38 @@ namespace Options
 
 	void LogEnvironment()
 	{
-		_MESSAGE("environment: required plugins are SkyUI.esp and FreeClimbMenu.esp");
-		_MESSAGE("environment: plugin/form presence is not queried by this LE build");
+		DataHandler * data = DataHandler::GetSingleton();
+		if(!data) { _MESSAGE("environment: no data handler"); return; }
+
+		struct Probe { const char * what; UInt32 local; };
+		static const Probe probes[] =
+		{
+			{ "menu quest (FreeClimbMCMQuest)",	0x809 },
+			{ "sound marker FC_MenuStep",		0x801 },
+			{ "sound marker FC_MenuGrip",		0x802 },
+			{ "sound marker FC_MenuPush",		0x803 },
+			{ "sound marker FC_MenuTop",		0x804 },
+			{ "sound descriptor FC_Step",		0x805 },
+			{ "sound descriptor FC_Grip",		0x806 },
+			{ "sound descriptor FC_Push",		0x807 },
+			{ "sound descriptor FC_Top",			0x808 },
+		};
+
+		static const char * const plugins[] = { "SkyUI.esp", "FreeClimbMenu.esp" };
+		for(int i = 0; i < 2; ++i)
+		{
+			const ModInfo * mod = data->LookupModByName(plugins[i]);
+			if(mod) _MESSAGE("environment: %s is LOADED (index %02X)", plugins[i], (unsigned)mod->modIndex);
+			else	_MESSAGE("environment: %s is NOT loaded%s", plugins[i], i == 1 ? " - the menu and the sounds cannot work without it (check that the ESP is enabled)" : "");
+		}
+
+		const ModInfo * menu = data->LookupModByName("FreeClimbMenu.esp");
+		if(!menu) return;
+		for(size_t i = 0; i < sizeof(probes) / sizeof(probes[0]); ++i)
+		{
+			TESForm * form = LookupFormByID(((UInt32)menu->modIndex << 24) | probes[i].local);
+			if(form) _MESSAGE("environment:   %s: found (form type %u)", probes[i].what, (unsigned)form->formType);
+			else	 _MESSAGE("environment:   %s: NOT FOUND", probes[i].what);
+		}
 	}
 }
-
