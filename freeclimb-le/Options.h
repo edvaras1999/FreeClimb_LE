@@ -93,8 +93,6 @@ namespace Options
 	void			SetMessaging(SKSEMessagingInterface * messaging);
 	void			PlaySoundFx(int sound, TESForm * sender = 0);	// 'sender' = quem faz o som (0 = o jogador)
 
-	// Diagnostico: escreve no log que plugins e formularios do menu o jogo carregou (chamar depois de os dados carregarem).
-	void			LogEnvironment();
 }
 
 // Implementado em Gameplay.cpp: estado para o menu (0 = pacote de animacoes ok, 1 = ossos ligados, 2 = a escalar, 3 = estamina em %).

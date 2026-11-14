@@ -147,7 +147,6 @@ namespace
 				ReportRtti();
 				InstallSceneHooks();
 				InstallGameplay();
-				Options::LogEnvironment();
 				break;
 
 			case SKSEMessagingInterface::kMessage_InputLoaded:

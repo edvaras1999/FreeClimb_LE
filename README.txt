@@ -53,12 +53,11 @@ TROUBLESHOOTING (FreeClimbLE.log)
   "pose engine: N of 99 bones bound"           N should be about 80
   "papyrus interface: registered"              menu functions available
   "menu: the menu script called the DLL"       menu script is running
-  "environment: ... LOADED / NOT FOUND"        SkyUI and FreeClimbMenu.esp (quest 0x809, sounds 0x801-0x808)
   "sound: first event sent"                    first sound requested from the menu script
   Verbose=1 also logs "camera: distance ... side ... [ON THE WALL SIDE] [BLOCKED by geometry]" while clinging.
   Papyrus log: lines starting with "FreeClimbMCM:".
   No menu: check SkyUI, FreeClimbMenu.esp enabled, both .pex in Data/Scripts.
-  No sounds: check the Sound folder and the "environment" lines above.
+  No sounds: check the Sound folder, the "sound: first event sent" line and the Papyrus log.
 
 KNOWN ISSUES
 - First person with Enhanced Camera: head stuck on the vertical axis, hands not visible.
