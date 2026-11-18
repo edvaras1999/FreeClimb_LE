@@ -1,0 +1,41 @@
+THIRD-PARTY NOTICES - FreeClimb LE
+===================================
+
+FreeClimb LE is a port of FreeClimb (Skyrim Special Edition) to Skyrim Legendary Edition.
+Source: https://github.com/edvaras1999/FreeClimb_LE
+
+1. FreeClimb LE (this port)
+   Copyright (c) 2026 Ezyel
+   License: GNU General Public License, version 3 only (GPL-3.0-only). See LICENSE.
+   Changes from the original: ported to Skyrim LE (1.9.32) and SKSE 1.7.3; new pose engine, in-game menu
+   (SkyUI MCM), stamina, slide, hop and surface fitting, gamepad support, sounds. See the git history.
+
+2. FreeClimb (original mod)
+   Copyright (c) 2026 Epsilona
+   License: GPL-3.0-only. Source: https://github.com/Eelta/FreeClimb  Nexus Mods (Skyrim SE): mod 193552
+   The animation loading core in freeclimb-le/src/ is taken from the original unmodified.
+   The sound records in FreeClimbMenu.esp derive from the original FreeClimb.esp.
+   This port is published with the original author's permission, granted on the condition that the
+   terms of the GPL are respected.
+
+3. Animation data (NOT covered by the GPL)
+   - Adobe Mixamo: see docs/MIXAMO-LICENSE.md
+   - Threepeat Games (Week 4 animations): see docs/THREEPEAT-LICENSE.md
+   These notices come from the original FreeClimb. The converted animation clips are included only as
+   components of this game add-on. They must not be repackaged as a standalone animation library,
+   stock asset or template.
+
+4. Audio (CC0 1.0)
+   Kenney (Impact Sounds 1.0, RPG Audio). See docs/AUDIO-LICENSE.md.
+
+5. nlohmann/json 3.11.3 (freeclimb-le/external/nlohmann/json.hpp)
+   Copyright (c) 2013-2023 Niels Lohmann. MIT License. https://github.com/nlohmann/json
+
+6. SKSE 1.7.3 (Skyrim Script Extender) - NOT included in this repository or in the mod archive
+   The plugin is built against the SKSE 1.7.3 source, which the build downloads from
+   https://skse.silverlock.org/ and must not be redistributed. The files under src/skse and src/common of
+   SKSE carry their own licenses (skse_license.txt, common_license.txt). Ian Patterson and the SKSE team own that code. Users need SKSE 1.7.3 installed to run the mod.
+
+7. SkyUI - NOT included
+   The in-game menu needs SkyUI (SkyUI Team). The files in papyrus/stubs only declare function names so
+   the scripts can be compiled; they contain no SkyUI code.

@@ -66,6 +66,10 @@ KNOWN ISSUES
 - NPC follower: disabled.
 
 CREDITS AND LICENSE
-- Original FreeClimb: Epsilona (GPL-3.0). This port is GPL-3.0; source: <repository URL>
-- Animations: Mixamo, Threepeat Games (see the original mod's notices). Audio: Kenney.
-- SKSE team, SkyUI team.
+- FreeClimb LE: Copyright (c) 2026 Ezyel. GPL-3.0-only. Source code: https://github.com/edvaras1999/FreeClimb_LE
+- Original FreeClimb: Epsilona (GPL-3.0-only), https://github.com/Eelta/FreeClimb (Nexus Mods, Skyrim SE, mod 193552).
+  Published with the original author's permission, on the condition of complying with the GPL.
+- Animations: Adobe Mixamo and Threepeat Games. Audio: Kenney (CC0). These are NOT covered by the GPL and must not be
+  redistributed as a standalone library. Notices are in the licenses/ folder (see THIRD-PARTY-NOTICES.txt).
+- Built against SKSE 1.7.3 (not included); the menu needs SkyUI (not included).
+- You may redistribute and modify the plugin under the GPL-3.0-only terms (see LICENSE). BUILDING.md explains how to build it.

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# FreeClimb LE - Copyright (c) 2026 Ezyel. SPDX-License-Identifier: GPL-3.0-only (see LICENSE).
 """Gera papyrus/FreeClimbMenu.esp: a quest do menu (MCM) do FreeClimb LE e 4 registos SOUN que embrulham
 os descritores de som FC_* do FreeClimb.esp. O formato copia o SoftTarget.esp (Skyrim LE, form version 43).
 

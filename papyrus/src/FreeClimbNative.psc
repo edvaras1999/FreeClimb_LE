@@ -1,3 +1,10 @@
+; FreeClimb LE - wall climbing for Skyrim Legendary Edition.
+; Copyright (c) 2026 Ezyel. Port of FreeClimb by Epsilona (Copyright (c) 2026 Epsilona), used with the author's permission.
+; SPDX-License-Identifier: GPL-3.0-only
+;
+; This program is free software: you can redistribute it and/or modify it under the terms of the GNU General
+; Public License, version 3, as published by the Free Software Foundation. It is distributed WITHOUT ANY
+; WARRANTY; see the LICENSE file. Modified from the original FreeClimb: ported to Skyrim LE / SKSE 1.7.3 (2026).
 Scriptname FreeClimbNative Native Hidden
 { Native functions implemented by the FreeClimbLE DLL. The menu reads and writes options through
   these, and the DLL saves the .ini on every change, so the menu and the .ini never disagree. }
