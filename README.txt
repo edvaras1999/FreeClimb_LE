@@ -59,6 +59,20 @@ TROUBLESHOOTING (FreeClimbLE.log)
   No menu: check SkyUI, FreeClimbMenu.esp enabled, both .pex in Data/Scripts.
   No sounds: check the Sound folder, the "sound: first event sent" line and the Papyrus log.
 
+CHANGES (source, not yet released)
+- NPCs, creatures and bodies are ignored by every probe (IgnoreActors=1): no more climbing people.
+- Entry height check (EntryHeightCheck=1): the jump only clings to something taller than EntryMinHeight (0 = MinLedge) in two
+  consecutive levels. MinLedge used to be read only when pulling over a ledge, never when grabbing, which is why raising it
+  changed nothing. Rejected jumps fall through to the normal jump / FreeRun.
+- Protrusions (ProtrusionAssist=1): an eave, cornice or balcony above the head is hopped over (climb up against it, or Jump+W),
+  a wall that steps back after a bulge is followed instead of dropped, and the body is kept clear of bulges at feet / head height.
+- Safety: every ray is refused if it has a NaN / infinity (a classic way to hang the game), loops that could spin forever were
+  removed, the jump handler and the skeleton tick are wrapped so a memory fault is logged (\"FAULT in ...\") instead of killing
+  the game, and a watchdog writes \"WATCHDOG: ... stuck at step ...\" to FreeClimbLE.log if something never returns.
+  After 3 faults the mod switches itself off for the session.
+- New INI keys: IgnoreActors, EntryHeightCheck, EntryMinHeight, ProtrusionAssist (no menu entries).
+- Test of the new geometry outside the game: tools/test_climbprobe.cpp (g++ -std=c++14 -Ifreeclimb-le).
+
 KNOWN ISSUES
 - First person with Enhanced Camera: head stuck on the vertical axis, hands not visible.
 - Some ledges are climbed as if there were an invisible step (the log records every accepted ledge).

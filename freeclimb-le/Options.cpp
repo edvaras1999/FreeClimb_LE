@@ -110,6 +110,12 @@ namespace
 		{ NULL, 0, NULL, 0, 0, 0, "MENU AND DIAGNOSTICS" },
 		{ "Language",		'i', &g_cfg.language,		0.0f,	0.0f,	1.0f,	"Menu language: 0 = English, 1 = Portugues." },
 		{ "Verbose",		'i', &g_cfg.verbose,		0.0f,	0.0f,	1.0f,	"1 = detailed log (also logs the camera position while clinging)." },
+
+		{ NULL, 0, NULL, 0, 0, 0, "OBSTACLES, NPCS AND PROTRUSIONS (ini only)" },
+		{ "IgnoreActors",		'i', &g_cfg.ignoreActors,		1.0f,	0.0f,	1.0f,	"1 = NPCs, creatures and bodies are never treated as a wall or a ledge." },
+		{ "EntryHeightCheck",	'i', &g_cfg.entryHeightCheck,	1.0f,	0.0f,	1.0f,	"1 = only cling to something taller than EntryMinHeight (chests, small rocks and steps are left to the normal jump / parkour mod). 0 = old behaviour." },
+		{ "EntryMinHeight",		'f', &g_cfg.entryMinHeight,		0.0f,	0.0f,	300.0f,	"Min height of the obstacle (above the ground) to cling to it. 0 = use MinLedge. The wall must reach about this height + 30." },
+		{ "ProtrusionAssist",	'i', &g_cfg.protrusionAssist,	1.0f,	0.0f,	1.0f,	"1 = eaves, cornices and bulges: hop over an overhang above the head, follow a wall that steps back, keep the body clear of bulges. 0 = flat walls only." },
 	};
 	const int kNumOpts = sizeof(g_opts) / sizeof(g_opts[0]);
 

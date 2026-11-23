@@ -834,7 +834,7 @@ bool SceneHooksRootForward(float * x, float * y)
 	const float * r = (const float *)(root + 0x54);		// rotacao mundial do no raiz, linhas
 	const float fx = r[1], fy = r[4];						// coluna 1 = o eixo Y local (frente) no mundo
 	const float len = sqrtf(fx * fx + fy * fy);
-	if(len < 0.001f) return false;
+	if(!(len >= 0.001f) || len > 1.0e6f) return false;		// NaN, infinito ou zero: sem direcao (um NaN no Havok pode bloquear o jogo)
 
 	*x = fx / len; *y = fy / len;
 	return true;

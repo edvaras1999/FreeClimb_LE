@@ -117,7 +117,18 @@ namespace Havok
 	// A ray from `start` along `direction` for `distance` game units, cast with
 	// the actor's own collision filter so it never hits the caster. Every hit
 	// is kept, nearest first.
+	//
+	// A ray with a NaN, an infinity or an absurd length is refused (no hit): handing one to
+	// the physics world is a classic way to make the game hang with no message at all.
 	Result RayCast(const NiPoint3 & start, const NiPoint3 & direction, float distance, UInt32 layer, Actor * caster);
+
+	// Does this hit belong to an actor (an NPC, a creature, a mount, a body) rather than to the world?
+	bool IsActorHit(UInt32 layer, bool hasReference, UInt8 formType);
+
+	// The same ray, but actors are invisible to it: the result describes the nearest hit that is NOT an
+	// actor (the wall behind the guard, not the guard). If every hit is an actor, nothing was hit.
+	// Used so that climbing, ledge and obstacle probes never treat a person as a wall.
+	Result RayCastWorld(const NiPoint3 & start, const NiPoint3 & direction, float distance, UInt32 layer, Actor * caster);
 
 	// The same, with a sphere of `radius` swept along the ray. Used wherever a
 	// ray would slip through a gap the player cannot.

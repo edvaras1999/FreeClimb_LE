@@ -83,6 +83,12 @@ struct FCConfig
 	// ---- menu / diagnostico
 	int		language;		// 0 = English, 1 = Portugues
 	int		verbose;		// 1 = log detalhado
+
+	// ---- obstaculos, NPCs e saliencias (so no .ini)
+	int		ignoreActors;		// 1 = NPCs, criaturas e corpos nunca contam como parede nem como borda
+	int		entryHeightCheck;	// 1 = so se agarra a uma parede que passe da altura minima (bau, pedra pequena, degrau: nao)
+	float	entryMinHeight;		// altura minima do obstaculo para se agarrar (0 = usa MinLedge)
+	int		protrusionAssist;	// 1 = beirais, cornijas e saliencias: salta por cima, segue a parede recuada, afasta o corpo
 };
 
 extern FCConfig g_cfg;

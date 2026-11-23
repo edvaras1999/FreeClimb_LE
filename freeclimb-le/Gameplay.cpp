@@ -28,6 +28,7 @@
 #include "PackLoader.h"
 #include "SceneHooks.h"
 #include "Options.h"
+#include "ClimbProbe.h"
 #include "skse/GameCamera.h"
 
 #include "skse/GameInput.h"
@@ -86,10 +87,14 @@ namespace
 		return dt;
 	}
 
+	// Sem ciclos 'while': com NaN, infinito ou um valor enorme (um angulo corrompido) o ciclo antigo nunca terminava
+	// (a - 6.28 == a quando a e grande) e o jogo ficava preso. fmodf resolve em tempo constante.
 	float WrapPi(float a)
 	{
-		while(a > 3.14159265f) a -= 6.2831853f;
-		while(a < -3.14159265f) a += 6.2831853f;
+		if(!(a == a) || a > 1.0e9f || a < -1.0e9f) return 0.0f;
+		a = fmodf(a, 6.2831853f);
+		if(a > 3.14159265f) a -= 6.2831853f;
+		else if(a < -3.14159265f) a += 6.2831853f;
 		return a;
 	}
 
@@ -301,8 +306,112 @@ namespace
 	// ------------------------------------------------------------------ o mundo: personagem, controlador, raios
 	Actor * ThePlayer()		{ return (Actor *)Engine::Player(); }
 
+	// ------------------------------------------------------------------ diagnostico de bloqueios e falhas
+	// Um vigia (thread propria) escreve no log se um passo do mod demorar mais de 3 s, ou se um raio ao Havok nao voltar.
+	// Se o jogo bloquear, o FreeClimbLE.log diz ONDE (passo, e posicao e direcao do raio). Canal 0 = tick do esqueleto,
+	// canal 1 = o botao de salto.
+	const char * volatile	g_stepName[2] = { "", "" };
+	volatile DWORD			g_stepStart[2] = { 0, 0 };
+	volatile LONG			g_stepActive[2] = { 0, 0 };
+	volatile LONG			g_inRay = 0;
+	volatile DWORD			g_rayStart = 0;
+	float					g_rayDbg[7] = { 0, 0, 0, 0, 0, 0, 0 };
+	volatile LONG			g_faults = 0, g_disabled = 0;
+
+	void StepBegin(int ch, const char * name) { g_stepName[ch] = name; g_stepStart[ch] = GetTickCount(); InterlockedExchange(&g_stepActive[ch], 1); }
+	void Step(int ch, const char * name)		{ g_stepName[ch] = name; }
+	void StepEnd(int ch)						{ InterlockedExchange(&g_stepActive[ch], 0); }
+
+	DWORD WINAPI WatchdogThread(LPVOID)
+	{
+		DWORD reported[3] = { 0, 0, 0 };
+		for(;;)
+		{
+			Sleep(500);
+			const DWORD now = GetTickCount();
+			for(int ch = 0; ch < 2; ++ch)
+			{
+				const DWORD start = g_stepStart[ch];
+				if(g_stepActive[ch] && (DWORD)(now - start) > 3000 && reported[ch] != start)
+				{
+					reported[ch] = start;
+					_MESSAGE("WATCHDOG: the %s has been stuck for %lu ms at step \"%s\"", ch == 0 ? "skeleton tick" : "jump handler", (unsigned long)(now - start), g_stepName[ch]);
+				}
+			}
+			const DWORD rs = g_rayStart;
+			if(g_inRay && (DWORD)(now - rs) > 3000 && reported[2] != rs)
+			{
+				reported[2] = rs;
+				_MESSAGE("WATCHDOG: a Havok ray cast has not returned for %lu ms. start (%.1f, %.1f, %.1f) direction (%.3f, %.3f, %.3f) length %.1f",
+						 (unsigned long)(now - rs), (double)g_rayDbg[0], (double)g_rayDbg[1], (double)g_rayDbg[2], (double)g_rayDbg[3], (double)g_rayDbg[4], (double)g_rayDbg[5], (double)g_rayDbg[6]);
+			}
+		}
+		return 0;
+	}
+
+	// Filtro de excecoes: so as falhas de memoria/instrucao (as que mataria o jogo) sao apanhadas; o resto segue.
+	int FaultFilter(unsigned code, EXCEPTION_POINTERS * info, const char * where)
+	{
+		if(code != EXCEPTION_ACCESS_VIOLATION && code != EXCEPTION_IN_PAGE_ERROR && code != EXCEPTION_ILLEGAL_INSTRUCTION &&
+		   code != EXCEPTION_PRIV_INSTRUCTION && code != EXCEPTION_INT_DIVIDE_BY_ZERO && code != EXCEPTION_FLT_INVALID_OPERATION)
+			return EXCEPTION_CONTINUE_SEARCH;
+		void * address = info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionAddress : NULL;
+		_MESSAGE("FAULT in the %s: exception %08X at address %p (step \"%s\" / \"%s\"). FreeClimb lets go of the wall and carries on.",
+				 where, code, address, g_stepName[0], g_stepName[1]);
+		return EXCEPTION_EXECUTE_HANDLER;
+	}
+
+	void RecoverFromFault()
+	{
+		InterlockedExchange(&g_state, kIdle);
+		HidePose();
+		const LONG n = InterlockedIncrement(&g_faults);
+		if(n >= 3 && !g_disabled)
+		{
+			InterlockedExchange(&g_disabled, 1);
+			_MESSAGE("FreeClimb switches itself off for the rest of this session after %ld faults. Please send FreeClimbLE.log.", (long)n);
+		}
+	}
+
+	// Todos os raios do mod passam por aqui. Com IgnoreActors=1, NPCs, criaturas e corpos sao invisiveis (nao se trepa em pessoas).
+	Havok::Result CastRay(const NiPoint3 & start, const NiPoint3 & dir, float dist, Actor * player)
+	{
+		g_rayDbg[0] = start.x; g_rayDbg[1] = start.y; g_rayDbg[2] = start.z; g_rayDbg[3] = dir.x; g_rayDbg[4] = dir.y; g_rayDbg[5] = dir.z; g_rayDbg[6] = dist;
+		g_rayStart = GetTickCount();
+		InterlockedExchange(&g_inRay, 1);
+		const Havok::Result r = g_cfg.ignoreActors ? Havok::RayCastWorld(start, dir, dist, Havok::kLayer_Transparent, player)
+												   : Havok::RayCast(start, dir, dist, Havok::kLayer_Transparent, player);
+		InterlockedExchange(&g_inRay, 0);
+		return r;
+	}
+
+	// O raio visto pelo ClimbProbe.h (que nao conhece o jogo).
+	struct PlayerRay
+	{
+		Actor * player;
+		explicit PlayerRay(Actor * p) : player(p) {}
+		ClimbProbe::Hit operator()(float sx, float sy, float sz, float dx, float dy, float dz, float maxDist)
+		{
+			ClimbProbe::Hit h;
+			memset(&h, 0, sizeof(h));
+			const Havok::Result r = CastRay(NiPoint3(sx, sy, sz), NiPoint3(dx, dy, dz), maxDist, player);
+			if(!r.didHit) return h;
+			h.hit = true; h.dist = r.distance;
+			h.x = r.hitPosition.x; h.y = r.hitPosition.y; h.z = r.hitPosition.z;
+			h.nx = r.normal.x; h.ny = r.normal.y; h.nz = r.normal.z;
+			return h;
+		}
+	};
+
 	void PlaceController(void * ctrl, float x, float y, float z)
 	{
+		// Uma posicao NaN/infinita entregue ao Havok pode bloquear o jogo: nunca sai daqui.
+		if(!ClimbProbe::Finite(x) || !ClimbProbe::Finite(y) || !ClimbProbe::Finite(z))
+		{
+			static bool warned = false;
+			if(!warned) { warned = true; _MESSAGE("gameplay: WARNING - refused to move the controller to an invalid position (%f, %f, %f)", (double)x, (double)y, (double)z); }
+			return;
+		}
 		const float scale = Engine::HavokScale();
 		__declspec(align(16)) float target[4];
 		target[0] = x * scale; target[1] = y * scale; target[2] = z * scale; target[3] = 0.0f;
@@ -320,11 +429,12 @@ namespace
 		WallHit best;
 		memset(&best, 0, sizeof(best));
 		best.dist = 1e9f;
+		if(!ClimbProbe::Finite(fx) || !ClimbProbe::Finite(fy) || !ClimbProbe::Finite(px) || !ClimbProbe::Finite(py) || !ClimbProbe::Finite(pz)) return best;
 
 		for(int k = 0; k < count; ++k)
 		{
 			const NiPoint3 start(px, py, pz + heights[k]);
-			const Havok::Result r = Havok::RayCast(start, NiPoint3(fx, fy, 0.0f), maxDist, Havok::kLayer_Transparent, player);
+			const Havok::Result r = CastRay(start, NiPoint3(fx, fy, 0.0f), maxDist, player);
 			if(!r.didHit) continue;
 			if(fabsf(r.normal.z) > 0.45f) continue;										// nao e uma parede
 			if(r.normal.x * fx + r.normal.y * fy > -0.3f) continue;						// nao esta virada para nos
@@ -341,6 +451,30 @@ namespace
 		return best;
 	}
 
+	WallHit FromProbe(const ClimbProbe::Wall & p)
+	{
+		WallHit w;
+		w.found = p.found; w.dist = p.dist; w.x = p.x; w.y = p.y; w.z = p.z; w.nx = p.nx; w.ny = p.ny;
+		return w;
+	}
+
+	// Quanto o corpo esta afastado da parede ALEM do 'gap' (para nao entrar numa saliencia a outra altura). Ver ClimbProbe.h.
+	float	g_push = 0.0f;
+	float ClearancePushAt(const WallHit & w, float fx, float fy, float px, float py, float pz)
+	{
+		if(!g_cfg.protrusionAssist || !w.found) return 0.0f;
+		PlayerRay ray(ThePlayer());
+		return ClimbProbe::ClearancePush(ray, fx, fy, px, py, pz, w.dist);
+	}
+
+	// A altura do chao por baixo de (x,y), a partir de z (usada na entrada a meio de um salto). Sem chao: devolve z.
+	float GroundBelow(Actor * player, float x, float y, float z)
+	{
+		const Havok::Result g = CastRay(NiPoint3(x, y, z + 10.0f), NiPoint3(0, 0, -1), 400.0f, player);
+		if(g.didHit && g.normal.z > 0.5f) return g.hitPosition.z;
+		return z;
+	}
+
 	// Ate onde se pode ir a partir de (px,py,pz+h) na direcao (dx,dy,dz) (unitaria), em 'maxDist': devolve a distancia
 	// livre (maxDist se nada a bloqueia). Testa a varias alturas e fica com a mais curta.
 	float FreeDistance(Actor * player, float px, float py, float pz, float dx, float dy, float dz, float maxDist, const float * heights, int count)
@@ -348,7 +482,7 @@ namespace
 		float free = maxDist;
 		for(int k = 0; k < count; ++k)
 		{
-			const Havok::Result r = Havok::RayCast(NiPoint3(px, py, pz + heights[k]), NiPoint3(dx, dy, dz), maxDist, Havok::kLayer_Transparent, player);
+			const Havok::Result r = CastRay(NiPoint3(px, py, pz + heights[k]), NiPoint3(dx, dy, dz), maxDist, player);
 			if(r.didHit && r.distance < free) free = r.distance;
 		}
 		return free;
@@ -365,14 +499,14 @@ namespace
 
 		const float reach = wall.dist + 25.0f;
 		const NiPoint3 above(px + fx * reach, py + fy * reach, pz + 260.0f);
-		const Havok::Result top = Havok::RayCast(above, NiPoint3(0, 0, -1), 260.0f, Havok::kLayer_Transparent, player);
+		const Havok::Result top = CastRay(above, NiPoint3(0, 0, -1), 260.0f, player);
 		if(!top.didHit || top.normal.z < 0.7f) { *reason = "no flat top behind the wall"; return false; }
 
 		const float height = top.hitPosition.z - pz;
 		if(height < g_cfg.minLedge) { *reason = "ledge too low"; return false; }
 		if(height > g_cfg.maxLedge) { *reason = "ledge too high"; return false; }
 
-		const Havok::Result clear = Havok::RayCast(Add(top.hitPosition, NiPoint3(0, 0, 8.0f)), NiPoint3(0, 0, 1), 110.0f, Havok::kLayer_Transparent, player);
+		const Havok::Result clear = CastRay(Add(top.hitPosition, NiPoint3(0, 0, 8.0f)), NiPoint3(0, 0, 1), 110.0f, player);
 		if(clear.didHit && clear.distance < 100.0f) { *reason = "no head room on top"; return false; }
 
 		out->wallDistance = wall.dist;
@@ -519,7 +653,7 @@ namespace
 	void LandOnWall(Actor * player, void * ctrl, bool afterUpHop)
 	{
 		static const float chest[1] = { 70.0f };
-		const WallHit w = ProbeWall(player, -g_n[0], -g_n[1], g_pos[0], g_pos[1], g_pos[2], g_cfg.gap + 50.0f, chest, 1);
+		const WallHit w = ProbeWall(player, -g_n[0], -g_n[1], g_pos[0], g_pos[1], g_pos[2], g_cfg.gap + 50.0f + g_push, chest, 1);
 		if(!w.found)
 		{
 			// aterrou acima do topo da parede: se foi um salto para cima, passa por cima da borda em vez de cair
@@ -529,20 +663,22 @@ namespace
 			return;
 		}
 
+		g_push = ClearancePushAt(w, -g_n[0], -g_n[1], g_pos[0], g_pos[1], g_pos[2]);		// antes de g_n mudar: a direcao do raio e a de entao
 		g_n[0] = w.nx; g_n[1] = w.ny;
-		SnapPos(w.x + g_n[0] * g_cfg.gap, w.y + g_n[1] * g_cfg.gap);
+		SnapPos(w.x + g_n[0] * (g_cfg.gap + g_push), w.y + g_n[1] * (g_cfg.gap + g_push));
 		PlaceView(ctrl);
 		EnterCling();
 	}
 
 	// Entrada na parede: o personagem e levado ate ela enquanto toca a animacao de apanhar (reach, jumpCatch, ...).
-	void BeginCatch(int motion, const WallHit & wall, float fromX, float fromY, float fromZ)
+	void BeginCatch(int motion, const WallHit & wall, float fromX, float fromY, float fromZ, float fx, float fy)
 	{
 		const float secs = FC_MotionSeconds(motion);
+		g_push = ClearancePushAt(wall, fx, fy, fromX, fromY, fromZ);		// afasta o corpo de saliencias a outra altura
 		g_n[0] = wall.nx; g_n[1] = wall.ny;
 		g_catchFrom[0] = fromX; g_catchFrom[1] = fromY; g_catchFrom[2] = fromZ;
-		g_catchTo[0] = wall.x + g_n[0] * g_cfg.gap;
-		g_catchTo[1] = wall.y + g_n[1] * g_cfg.gap;
+		g_catchTo[0] = wall.x + g_n[0] * (g_cfg.gap + g_push);
+		g_catchTo[1] = wall.y + g_n[1] * (g_cfg.gap + g_push);
 		g_catchTo[2] = fromZ;
 		g_catchMotion = motion;
 		g_catchSecs = (secs > 0.0f ? secs : 0.1f) / (g_cfg.catchSpeed > 0.2f ? g_cfg.catchSpeed : 1.0f);
@@ -569,18 +705,57 @@ namespace
 	}
 
 	// Procura a parede e, se a encontra, comeca a apanha-la. 'air' = a meio de um salto.
+	void LogEntryRefused(const char * why)
+	{
+		static DWORD last = 0;
+		const DWORD now = GetTickCount();
+		if(!g_cfg.verbose && (DWORD)(now - last) < 1500) return;
+		last = now;
+		_MESSAGE("gameplay: not clinging - %s", why);
+	}
+
 	bool StartEntry(Actor * player, float fx, float fy, bool air)
 	{
 		const NiPoint3 feet = Engine::Position(player);
-		static const float heights[3] = { 55.0f, 95.0f, 135.0f };
-		const WallHit wall = ProbeWall(player, fx, fy, feet.x, feet.y, feet.z, air ? g_cfg.airReach : g_cfg.attachReach, heights, 3);
-		if(!wall.found) return false;
+		if(!ClimbProbe::Finite(feet.x) || !ClimbProbe::Finite(feet.y) || !ClimbProbe::Finite(feet.z) || !ClimbProbe::Finite(fx) || !ClimbProbe::Finite(fy)) return false;
+		const float maxDist = air ? g_cfg.airReach : g_cfg.attachReach;
+
+		WallHit wall;
+		if(g_cfg.entryHeightCheck)
+		{
+			// So se agarra a uma PAREDE: algo que passe da altura minima (relativa ao chao) em dois niveis seguidos.
+			// Um bau, uma pedra pequena, uma mesa ou um degrau ficam para o salto normal / o mod de parkour.
+			float base = feet.z;
+			if(air)
+			{
+				base = GroundBelow(player, feet.x, feet.y, feet.z);
+				if(base > feet.z) base = feet.z;
+				if(base < feet.z - 40.0f) base = feet.z - 40.0f;
+			}
+			const float minHeight = g_cfg.entryMinHeight > 0.0f ? g_cfg.entryMinHeight : g_cfg.minLedge;
+			PlayerRay ray(player);
+			const char * why = "";
+			const ClimbProbe::Wall tall = ClimbProbe::ProbeEntryWall(ray, fx, fy, feet.x, feet.y, base, minHeight, maxDist, &why);
+			if(!tall.found) { LogEntryRefused(why); return false; }
+
+			// Ao peito tem de haver a MESMA parede: e a que o LandOnWall vai medir ao chegar. Sem isto, uma varanda ou um
+			// beiral a altura dos olhos fazia a animacao de apanhar acabar em "falhou a parede" e o personagem caia.
+			static const float chest[1] = { 70.0f };
+			wall = ProbeWall(player, fx, fy, feet.x, feet.y, feet.z, maxDist + 10.0f, chest, 1);
+			if(!wall.found || wall.nx * tall.nx + wall.ny * tall.ny < 0.7f) { LogEntryRefused("no matching wall at chest height"); return false; }
+		}
+		else
+		{
+			static const float heights[3] = { 55.0f, 95.0f, 135.0f };
+			wall = ProbeWall(player, fx, fy, feet.x, feet.y, feet.z, maxDist, heights, 3);
+			if(!wall.found) return false;
+		}
 
 		if(!air)
 		{
 			// um obstaculo REAL (parede, pilar) a altura dos joelhos e claramente antes da parede: nao agarra.
 			// (Declives e entulho baixo nao contam.)
-			const Havok::Result low = Havok::RayCast(NiPoint3(feet.x, feet.y, feet.z + 25.0f), NiPoint3(fx, fy, 0.0f), wall.dist, Havok::kLayer_Transparent, player);
+			const Havok::Result low = CastRay(NiPoint3(feet.x, feet.y, feet.z + 25.0f), NiPoint3(fx, fy, 0.0f), wall.dist, player);
 			if(low.didHit && fabsf(low.normal.z) < 0.5f && low.distance < wall.dist - 15.0f)
 			{
 				_MESSAGE("gameplay: not clinging - a wall-like obstacle is in the way at knee height");
@@ -597,7 +772,7 @@ namespace
 		}
 		else motion = (wall.dist <= 48.0f) ? kReach : kJumpCatch;
 
-		BeginCatch(motion, wall, feet.x, feet.y, feet.z);
+		BeginCatch(motion, wall, feet.x, feet.y, feet.z, fx, fy);
 		_MESSAGE("gameplay: CATCHING the wall (%s, %.0f units ahead) with animation %d. W/S climb, A/D sidestep, Shift = wall run.",
 				 air ? "in the air" : "from the ground", (double)wall.dist, motion);
 		return true;
@@ -641,7 +816,7 @@ namespace
 
 			const float lx = pos[limb * 3], ly = pos[limb * 3 + 1], lz = pos[limb * 3 + 2];
 			const float wx = g_pos[0] + rx * lx + fx * ly, wy = g_pos[1] + ry * lx + fy * ly, wz = g_pos[2] + lz;
-			const Havok::Result r = Havok::RayCast(NiPoint3(wx - fx * back, wy - fy * back, wz), NiPoint3(fx, fy, 0.0f), 50.0f, Havok::kLayer_Transparent, player);
+			const Havok::Result r = CastRay(NiPoint3(wx - fx * back, wy - fy * back, wz), NiPoint3(fx, fy, 0.0f), 50.0f, player);
 			++done;
 
 			float d = 0.0f;
@@ -797,7 +972,7 @@ namespace
 			const float hx = cam.x - head.x, hy = cam.y - head.y, hz = cam.z - head.z, hl = sqrtf(hx * hx + hy * hy + hz * hz);
 			if(hl > 20.0f)
 			{
-				const Havok::Result r = Havok::RayCast(head, NiPoint3(hx / hl, hy / hl, hz / hl), hl, Havok::kLayer_Transparent, player);
+				const Havok::Result r = CastRay(head, NiPoint3(hx / hl, hy / hl, hz / hl), hl, player);
 				blocked = r.didHit && r.distance < hl - 8.0f;
 			}
 		}
@@ -881,6 +1056,53 @@ namespace
 		_MESSAGE("gameplay: HOP with no wall ahead - normal jump (%s, %.0f units)", sign < 0.0f ? "left" : "right", (double)distance);
 	}
 
+	// Salto para um ponto exato (usado para passar por cima de um beiral). O caminho e a direito, de onde esta ate la.
+	// 'spendStamina' = false quando quem chama ja cobrou o salto.
+	void StartHopTo(int motion, float toX, float toY, float toZ, bool spendStamina)
+	{
+		CommitView();
+		if(spendStamina && !StaminaSpend(ThePlayer(), g_cfg.stHop, false)) return;
+		const float clip = FC_MotionSeconds(motion);
+		if(clip <= 0.0f) { Release("hop animation not available"); return; }
+
+		g_hopPathN = 0;
+		g_hopFrom[0] = g_pos[0]; g_hopFrom[1] = g_pos[1]; g_hopFrom[2] = g_pos[2];
+		g_hopTo[0] = toX; g_hopTo[1] = toY; g_hopTo[2] = toZ;
+		g_hopMotion = motion;
+		g_hopCom = 1.0f;
+
+		// a duracao cresce com a subida (o clip normal sobe ~100 unidades), sem ficar nem lenta nem instantanea
+		const float natural = kHopUpDist * g_cfg.hopScale;
+		float k = natural > 1.0f ? fabsf(toZ - g_pos[2]) / natural : 1.0f;
+		if(k < 0.8f) k = 0.8f;
+		if(k > 1.8f) k = 1.8f;
+		g_hopSecs = clip / (g_cfg.hopSpeed > 0.1f ? g_cfg.hopSpeed : 1.0f) * k;
+		g_hopStart = g_lastTick = GetTickCount();
+
+		Show(motion, 0.0f, 0, FC_STYLE_WALL);
+		Options::PlaySoundFx(Options::kSndPush);
+		InterlockedExchange(&g_state, kHop);
+		_MESSAGE("gameplay: HOP over an overhang - up %.0f units", (double)(toZ - g_pos[2]));
+	}
+
+	// Ha um beiral, cornija ou varanda por cima da cabeca e a parede continua por cima dele: salta por cima.
+	// Devolve true se o salto comecou. A decisao esta em ClimbProbe::PlanOverhangHop (testada fora do jogo).
+	DWORD g_overhangTry = 0;
+	bool TryOverhangHop(Actor * player, bool spendStamina)
+	{
+		if(!g_cfg.protrusionAssist || !player) return false;
+		PlayerRay ray(player);
+		const ClimbProbe::Overhang o = ClimbProbe::PlanOverhangHop(ray, -g_n[0], -g_n[1], g_pos[0], g_pos[1], g_pos[2], g_cfg.headHeight, g_cfg.maxLedge, g_cfg.gap + g_push);
+		if(!o.ok)
+		{
+			if(g_cfg.verbose) _MESSAGE("gameplay: overhang above - not hopping over it: %s", o.reason);
+			return false;
+		}
+		_MESSAGE("gameplay: overhang above (underside z %.0f, top z %.0f, edge %.0f out, wall above: %s) - hopping over it", (double)o.underZ, (double)o.topZ, (double)o.edgeOut, o.wallAbove ? "yes" : "no");
+		StartHopTo(kHopUp, g_pos[0], g_pos[1], o.destZ, spendStamina);
+		return g_state == kHop;
+	}
+
 	void StartHop(int motion, float lateral, float vertical, bool context = false)
 	{
 		CommitView();
@@ -923,7 +1145,12 @@ namespace
 			if(free < total + 25.0f)
 			{
 				const float allowed = free - 25.0f;
-				if(allowed < 25.0f) { _MESSAGE("gameplay: hop blocked by an obstacle - staying on the wall"); return; }
+				if(allowed < 25.0f)
+				{
+					if(motion == kHopUp && TryOverhangHop(ThePlayer(), false)) return;		// um beiral por cima: salta por cima dele
+					_MESSAGE("gameplay: hop blocked by an obstacle - staying on the wall");
+					return;
+				}
 				const float k = allowed / total;
 				dxs *= k; dys *= k; dzs *= k;
 				_MESSAGE("gameplay: hop shortened by an obstacle (%.0f%%)", (double)(k * 100.0f));
@@ -1174,8 +1401,8 @@ namespace
 			if(stride < 1.0f) stride = (motion == kUp || motion == kDown) ? 90.3f : (motion == kLeft || motion == kRight) ? 42.3f : 267.9f;
 			const float speed = sqrtf(vt * vt + vz * vz);
 			g_phase += dt * speed / stride;
-			if(!(g_phase == g_phase)) g_phase = 0.0f;
-			while(g_phase >= 1.0f) g_phase -= 1.0f;
+			if(g_phase >= 1.0f) g_phase = fmodf(g_phase, 1.0f);		// (um ciclo 'while' aqui nunca acabava com valores enormes)
+			if(!(g_phase == g_phase) || g_phase < 0.0f) g_phase = 0.0f;
 			rate = speed;
 		}
 		else g_phase = 0.0f;
@@ -1226,7 +1453,16 @@ namespace
 		{
 			static const float headTop[1] = { 0.0f };
 			const float room = FreeDistance(player, g_pos[0], g_pos[1], g_pos[2] + g_cfg.headHeight, 0.0f, 0.0f, 1.0f, vz * dt + 12.0f, headTop, 1);
-			if(room < vz * dt + 12.0f) vz = 0.0f;										// ha um teto/borda por cima
+			if(room < vz * dt + 12.0f)
+			{
+				vz = 0.0f;																// ha um teto/borda por cima
+				// um beiral/cornija com a parede a continuar por cima: salta por cima (tenta de 0,7 em 0,7 s)
+				if(up && g_cfg.protrusionAssist && (DWORD)(now - g_overhangTry) > 700)
+				{
+					g_overhangTry = now;
+					if(TryOverhangHop(player, true)) return;
+				}
+			}
 		}
 		if(vt != 0.0f)
 		{
@@ -1244,7 +1480,7 @@ namespace
 		// seguir a parede: um raio ao peito e outro a cabeca, na direcao da parede (-normal)
 		const float fx = -g_n[0], fy = -g_n[1];
 		static const float chest[1] = { 70.0f };
-		const WallHit w = ProbeWall(player, fx, fy, g_pos[0], g_pos[1], g_pos[2], g_cfg.gap + 40.0f, chest, 1);
+		WallHit w = ProbeWall(player, fx, fy, g_pos[0], g_pos[1], g_pos[2], g_cfg.gap + 40.0f + g_push, chest, 1);
 		if(!w.found)
 		{
 			if(vt != 0.0f)
@@ -1280,17 +1516,36 @@ namespace
 				const char * why = "";
 				if(StartMantle(player, fx, fy, g_pos[0], g_pos[1], g_pos[2], &why)) return;
 			}
-			Release("the wall ended");
-			return;
+
+			// A parede RECUOU (uma saliencia acabou) enquanto se sobe/desce: continua mais atras, a mesma parede? Segue-a
+			// em vez de largar. (Depois da tentativa de passar a borda: no topo de uma parede com outra mais atras, passa-se por cima.)
+			bool recovered = false;
+			if(g_cfg.protrusionAssist && vt == 0.0f)
+			{
+				PlayerRay ray(player);
+				const ClimbProbe::Wall rec = ClimbProbe::ProbeRecessedWall(ray, g_n[0], g_n[1], g_pos[0], g_pos[1], g_pos[2], g_cfg.gap + g_push, 110.0f);
+				if(rec.found)
+				{
+					w = FromProbe(rec);
+					recovered = true;
+					_MESSAGE("gameplay: the wall steps back %.0f units - following it", (double)(rec.dist - g_cfg.gap - g_push));
+				}
+			}
+			if(!recovered)
+			{
+				Release("the wall ended");
+				return;
+			}
 		}
+		g_push = ClearancePushAt(w, fx, fy, g_pos[0], g_pos[1], g_pos[2]);		// corpo livre de saliencias a outra altura
 		g_n[0] = w.nx; g_n[1] = w.ny;
-		SnapPos(w.x + g_n[0] * g_cfg.gap, w.y + g_n[1] * g_cfg.gap);
+		SnapPos(w.x + g_n[0] * (g_cfg.gap + g_push), w.y + g_n[1] * (g_cfg.gap + g_push));
 
 		// chegou ao topo? (a subir, sem parede a altura da cabeca) -> passar por cima da borda
 		if(up)
 		{
 			const float head[1] = { g_cfg.headHeight + 15.0f };
-			const WallHit h = ProbeWall(player, -g_n[0], -g_n[1], g_pos[0], g_pos[1], g_pos[2], g_cfg.gap + 45.0f, head, 1);
+			const WallHit h = ProbeWall(player, -g_n[0], -g_n[1], g_pos[0], g_pos[1], g_pos[2], g_cfg.gap + 45.0f + g_push, head, 1);
 			if(!h.found)
 			{
 				const char * why = "";
@@ -1306,7 +1561,7 @@ namespace
 		if(down || sliding || slideActive)
 		{
 			const float lookahead = slideActive ? g_slideV * dt : 0.0f;		// a descer depressa, o chao e procurado mais abaixo (fps baixos = passos grandes)
-			const Havok::Result ground = Havok::RayCast(NiPoint3(g_pos[0], g_pos[1], g_pos[2] + 20.0f), NiPoint3(0, 0, -1), 40.0f + lookahead, Havok::kLayer_Transparent, player);
+			const Havok::Result ground = CastRay(NiPoint3(g_pos[0], g_pos[1], g_pos[2] + 20.0f), NiPoint3(0, 0, -1), 40.0f + lookahead, player);
 			if(ground.didHit && ground.normal.z > 0.6f) { Release("reached the ground"); return; }
 		}
 
@@ -1315,6 +1570,22 @@ namespace
 		ShowCling();
 		FollowerTick(player, dt);
 		LogCamera(player, now);
+	}
+
+	// O tick corre dentro da atualizacao do esqueleto do jogo (thread de trabalho): uma falha aqui deitaria o jogo abaixo.
+	void OnTickGuarded()
+	{
+		if(g_disabled) return;
+		StepBegin(0, "skeleton tick");
+		__try
+		{
+			OnTick();
+		}
+		__except(FaultFilter(GetExceptionCode(), GetExceptionInformation(), "skeleton tick"))
+		{
+			RecoverFromFault();
+		}
+		StepEnd(0);
 	}
 
 	// ------------------------------------------------------------------ teclas
@@ -1349,8 +1620,9 @@ namespace
 	bool __fastcall Hook_SneakCanProcess(void * handler, void *, InputEvent * event)	{ if(Busy()) return false; return g_origSneakCan(handler, event); }
 
 	// O salto: junto a uma parede, agarra-se (ou passa por cima, se assim estiver configurado).
-	bool TryStartFromJump()
+	bool TryStartFromJumpImpl()
 	{
+		Step(1, "jump: player and controller");
 		Actor * player = ThePlayer();
 		if(!player || SceneHooksIsPlaying()) return false;
 		if(Engine::PlayerIsInMidair()) return false;
@@ -1358,11 +1630,14 @@ namespace
 		void * ctrl = Engine::CharController(player);
 		if(!ctrl || Engine::ControllerState(ctrl) != Engine::Controller::kState_OnGround) return false;
 
+		Step(1, "jump: finding the skeleton");
 		if(!SceneHooksRefreshTarget()) return false;							// o jogo reconstroi o corpo (equipar, combate, celulas): reencontra-o
 
+		Step(1, "jump: reading the facing direction");
 		float fx, fy;
 		if(!SceneHooksRootForward(&fx, &fy)) return false;
 
+		Step(1, "jump: reading the ini");
 		Options::ReloadIfChanged();															// afinacoes relidas: nao precisa de recompilar para afinar
 
 		// modo original: so entra com Salto + W + A + D premidos juntos (evita entrar sem querer)
@@ -1378,13 +1653,35 @@ namespace
 			return false;
 		}
 
+		Step(1, "jump: looking for a wall (ray casts)");
 		const NiPoint3 feet = Engine::Position(player);
 		if(!g_cfg.alwaysCling)
 		{
 			const char * why = "";
 			if(StartMantle(player, fx, fy, feet.x, feet.y, feet.z, &why)) return true;
 		}
+		Step(1, "jump: starting the grab");
 		return StartEntry(player, fx, fy, false);
+	}
+
+	// A mesma coisa, protegida: uma falha de memoria aqui nao mata o jogo (largamos a parede e seguimos), fica no log, e
+	// depois de 3 falhas o mod desliga-se ate ao fim da sessao. Sem objetos C++ nesta funcao (exigencia do __try).
+	bool TryStartFromJump()
+	{
+		if(g_disabled) return false;
+		bool started = false;
+		StepBegin(1, "jump: start");
+		__try
+		{
+			started = TryStartFromJumpImpl();
+		}
+		__except(FaultFilter(GetExceptionCode(), GetExceptionInformation(), "jump handler"))
+		{
+			RecoverFromFault();
+			started = false;
+		}
+		StepEnd(1);
+		return started;
 	}
 
 	void __fastcall Hook_JumpButton(void * handler, void *, ButtonEvent * event, void * data)
@@ -1462,7 +1759,11 @@ void InstallGameplay()
 	PatchSlot(kJumpHandler,		kSlot_ProcessButton,(void *)&Hook_JumpButton,		&g_origJumpButton);
 
 	Options::Init();
-	SceneHooksSetTick(&OnTick);
+	SceneHooksSetTick(&OnTickGuarded);
+	{
+		HANDLE wd = CreateThread(NULL, 0, WatchdogThread, NULL, 0, NULL);
+		if(wd) CloseHandle(wd);
+	}
 	_MESSAGE("gameplay: installed - press JUMP facing a wall to cling to it");
 }
 

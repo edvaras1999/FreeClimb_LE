@@ -367,6 +367,12 @@ namespace
 
 	// ------------------------------------------------------------- helpers
 
+	bool IsFiniteVec(const NiPoint3 & v)
+	{
+		return v.x == v.x && v.y == v.y && v.z == v.z &&
+			   v.x > -1.0e7f && v.x < 1.0e7f && v.y > -1.0e7f && v.y < 1.0e7f && v.z > -1.0e7f && v.z < 1.0e7f;
+	}
+
 	NiPoint3 Normalised(const NiPoint3 & v)
 	{
 		const float len = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
@@ -624,6 +630,10 @@ namespace Havok
 		result.distance		= distance;
 		result.hitPosition	= NiPoint3(start.x + dir.x * distance, start.y + dir.y * distance, start.z + dir.z * distance);
 
+		// A NaN or an infinity in a ray is a hang waiting to happen (the broad phase never finishes
+		// sweeping it), and a direction that normalised to NaN (zero length) is the same thing.
+		if(!IsFiniteVec(start) || !IsFiniteVec(dir) || !(distance == distance) || distance > 100000.0f) { result.distance = 0.0f; return result; }
+
 		void * world = WorldOf(caster);
 		if(!world || distance <= 0.0f) return result;
 
@@ -691,6 +701,57 @@ namespace Havok
 		return result;
 	}
 
+	// The base form of every actor, NPC or creature, is a TESNPC (form type 0x2B).
+	bool IsActorHit(UInt32 layer, bool hasReference, UInt8 formType)
+	{
+		// 8 Biped, 30 CharController, 32 DeadBip, 33 BipedNoCC: the layers actors live on.
+		if(layer == kLayer_Biped || layer == kLayer_CharController || layer == kLayer_DeadBip || layer == 33) return true;
+		return hasReference && formType == 0x2B;
+	}
+
+	Result RayCastWorld(const NiPoint3 & start, const NiPoint3 & direction, float distance, UInt32 layer, Actor * caster)
+	{
+		Result r = RayCast(start, direction, distance, layer, caster);
+		if(!r.didHit) return r;
+
+		const bool primaryActor = IsActorHit(r.layer, r.hasReference, r.formType);
+
+		if(r.hitCount == 0)
+		{
+			// only the pick root is known: nothing to choose from
+			if(primaryActor)
+			{
+				r.didHit = false;
+				r.distance = distance;
+				r.hitPosition = NiPoint3(start.x + r.direction.x * distance, start.y + r.direction.y * distance, start.z + r.direction.z * distance);
+			}
+			return r;
+		}
+
+		const bool firstActor = IsActorHit(r.hits[0].layer, r.hits[0].hasReference, r.hits[0].formType);
+		if(!primaryActor && !firstActor) return r;				// the usual case: the world is nearest, nothing changes
+
+		for(UInt32 i = 0; i < r.hitCount; ++i)
+		{
+			const Hit & h = r.hits[i];
+			if(IsActorHit(h.layer, h.hasReference, h.formType)) continue;
+
+			r.distance		= h.distance;
+			r.hitPosition	= h.position;
+			r.normal		= h.normal;
+			r.layer			= h.layer;
+			r.hasReference	= h.hasReference;
+			r.formType		= h.formType;
+			return r;
+		}
+
+		// every hit was an actor
+		r.didHit = false;
+		r.distance = distance;
+		r.hitPosition = NiPoint3(start.x + r.direction.x * distance, start.y + r.direction.y * distance, start.z + r.direction.z * distance);
+		return r;
+	}
+
 	Result ShapeCast(const NiPoint3 & start, const NiPoint3 & direction, float distance, float radius, UInt32 layer, Actor * caster)
 	{
 		Result result;
@@ -700,6 +761,8 @@ namespace Havok
 		result.direction	= dir;
 		result.distance		= distance;
 		result.hitPosition	= NiPoint3(start.x + dir.x * distance, start.y + dir.y * distance, start.z + dir.z * distance);
+
+		if(!IsFiniteVec(start) || !IsFiniteVec(dir) || !(distance == distance) || distance > 100000.0f) { result.distance = 0.0f; return result; }
 
 		void * world = WorldOf(caster);
 		if(!world || distance <= 0.0f || radius <= 0.0f) return result;

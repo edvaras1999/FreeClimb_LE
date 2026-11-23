@@ -184,6 +184,7 @@
     <ClInclude Include="Havok.h" />
     <ClInclude Include="Gameplay.h" />
     <ClInclude Include="Options.h" />
+    <ClInclude Include="ClimbProbe.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="FreeClimbLE.rc" />
