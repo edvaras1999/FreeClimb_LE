@@ -70,6 +70,11 @@ CHANGES (source, not yet released)
   removed, the jump handler and the skeleton tick are wrapped so a memory fault is logged (\"FAULT in ...\") instead of killing
   the game, and a watchdog writes \"WATCHDOG: ... stuck at step ...\" to FreeClimbLE.log if something never returns.
   After 3 faults the mod switches itself off for the session.
+- FIX for the freeze on Jump with big skeletons (found from a user's FreeClimbLE.log): the skeleton was re-bound to the
+  FreeClimb bones with a 99 x N loop that called VirtualQuery twice per comparison, on the main thread, when the jump key was
+  pressed. With a 642-entry skeleton (CME, SOS, Devourment...) that is tens of thousands of calls: seconds of frozen game.
+  Now one pass over the entries (about 50 times fewer calls, same result; see tools/test_bonebinding.cpp). The log line
+  "skeleton target refreshed ... (N ms)" now shows how long it took.
 - New INI keys: IgnoreActors, EntryHeightCheck, EntryMinHeight, ProtrusionAssist (no menu entries).
 - Test of the new geometry outside the game: tools/test_climbprobe.cpp (g++ -std=c++14 -Ifreeclimb-le).
 

@@ -768,6 +768,45 @@ namespace
 			g_boneNode[b] = node;
 		}
 	}
+
+	// Liga os ossos canonicos do FreeClimb as entradas da tabela achatada, pelo nome (sem distinguir maiusculas). Ficam de
+	// fora os ossos que o motor controla (raiz, folhas auxiliares, equipamento, camaras). Devolve quantos ficaram ligados.
+	//
+	// UMA passagem pelas entradas. Antes eram 99 ossos x n entradas, com duas chamadas a VirtualQuery (ReadableMem) em cada
+	// comparacao: num esqueleto de 640 entradas (CME, SOS, Devourment...) sao dezenas de milhares de chamadas, segundos na
+	// thread principal ao carregar no salto - o jogo parecia bloqueado. Agora cada entrada e validada uma unica vez.
+	unsigned MapBonesByName(unsigned entries, unsigned n, int * map)
+	{
+		static const int engineOwned[] = { 0, 1, 2, 3, 33, 34, 42, 43, 60, 61, 62, 63, 64, 65, 66, 97, 98 };
+		const char * names[99];
+		unsigned lens[99];
+		bool want[99];
+		for(int b = 0; b < 99; ++b)
+		{
+			map[b] = -1;
+			want[b] = true;
+			for(size_t k = 0; k < sizeof(engineOwned) / sizeof(engineOwned[0]); ++k) if(engineOwned[k] == b) want[b] = false;
+			names[b] = FC_BoneName(b);
+			lens[b] = names[b] ? (unsigned)strlen(names[b]) : 0;
+			if(!names[b] || lens[b] == 0 || lens[b] > 47) want[b] = false;
+		}
+
+		if(!ReadableMem(entries, n * 0x78)) return 0;					// a tabela inteira, de uma vez
+
+		unsigned bound = 0;
+		for(unsigned i = 0; i < n; ++i)
+		{
+			const unsigned chars = *(const unsigned *)(entries + i * 0x78 + 0x74);
+			if(!chars || !ReadableMem(chars, 48)) continue;
+			const char * s = (const char *)chars;
+			for(int b = 0; b < 99; ++b)
+			{
+				if(!want[b]) continue;
+				if(_strnicmp(s, names[b], 47) == 0 && s[lens[b]] == 0) { map[b] = (int)i; want[b] = false; ++bound; }
+			}
+		}
+		return bound;
+	}
 }
 
 void SceneHooksConfigure(int poseMode, float entryBlend, float exitBlend)
@@ -897,25 +936,9 @@ bool SceneHooksRefreshTarget()
 	}
 
 	// liga os ossos canonicos as entradas, pelo nome (sem distinguir maiusculas)
+	const DWORD tBind = GetTickCount();
 	int map[99];
-	const int engineOwned[] = { 0, 1, 2, 3, 33, 34, 42, 43, 60, 61, 62, 63, 64, 65, 66, 97, 98 };
-	for(int bone = 0; bone < 99; ++bone)
-	{
-		map[bone] = -1;
-		bool skip = false;
-		for(size_t k = 0; k < sizeof(engineOwned) / sizeof(engineOwned[0]); ++k) if(engineOwned[k] == bone) skip = true;
-		if(skip) continue;
-
-		const char * name = FC_BoneName(bone);
-		for(unsigned i = 0; i < n; ++i)
-		{
-			const unsigned e = entries + i * 0x78;
-			if(!ReadableMem(e + 0x74, 4)) continue;
-			const unsigned chars = *(const unsigned *)(e + 0x74);
-			if(!chars || !ReadableMem(chars, 48)) continue;
-			if(_strnicmp((const char *)chars, name, 47) == 0 && ((const char *)chars)[strlen(name)] == 0) { map[bone] = (int)i; break; }
-		}
-	}
+	MapBonesByName(entries, n, map);
 
 	// trocar tudo de uma vez, sem a thread do esqueleto estar a meio de uma pose
 	for(int spin = 0; spin < 200 && InterlockedCompareExchange(&g_inPose, 1, 0) != 0; ++spin) Sleep(1);
@@ -927,7 +950,7 @@ bool SceneHooksRefreshTarget()
 	InterlockedExchange(&g_fault, 0);
 	InterlockedExchange(&g_inPose, 0);
 
-	_MESSAGE("pose engine: skeleton target refreshed - root %08X, flat table %08X (%u entries), %u of 99 bones bound", root, flat, n, bound);
+	_MESSAGE("pose engine: skeleton target refreshed - root %08X, flat table %08X (%u entries), %u of 99 bones bound (%lu ms)", root, flat, n, bound, (unsigned long)(GetTickCount() - tBind));
 	return bound > 0;
 }
 
@@ -975,25 +998,7 @@ bool SceneHooksBindFollower(int slot, void * actorPtr)
 	if(!FlatArray(flat, &entries, &n) || !ReadableMem(entries, n * 0x78)) return false;
 
 	int map[99];
-	const int engineOwned[] = { 0, 1, 2, 3, 33, 34, 42, 43, 60, 61, 62, 63, 64, 65, 66, 97, 98 };
-	unsigned bound = 0;
-	for(int bone = 0; bone < 99; ++bone)
-	{
-		map[bone] = -1;
-		bool skip = false;
-		for(size_t k = 0; k < sizeof(engineOwned) / sizeof(engineOwned[0]); ++k) if(engineOwned[k] == bone) skip = true;
-		if(skip) continue;
-
-		const char * name = FC_BoneName(bone);
-		for(unsigned i = 0; i < n; ++i)
-		{
-			const unsigned e = entries + i * 0x78;
-			if(!ReadableMem(e + 0x74, 4)) continue;
-			const unsigned chars = *(const unsigned *)(e + 0x74);
-			if(!chars || !ReadableMem(chars, 48)) continue;
-			if(_strnicmp((const char *)chars, name, 47) == 0 && ((const char *)chars)[strlen(name)] == 0) { map[bone] = (int)i; ++bound; break; }
-		}
-	}
+	const unsigned bound = MapBonesByName(entries, n, map);
 	if(bound < 40) { _MESSAGE("follower %d: only %u bones matched - not binding", slot, bound); return false; }
 
 	FolTarget & f = g_fol[slot];
