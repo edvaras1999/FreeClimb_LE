@@ -88,6 +88,7 @@ struct FCConfig
 	int		ignoreActors;		// 1 = NPCs, criaturas e corpos nunca contam como parede nem como borda
 	int		entryHeightCheck;	// 1 = so se agarra a uma parede que passe da altura minima (bau, pedra pequena, degrau: nao)
 	float	entryMinHeight;		// altura minima do obstaculo para se agarrar (0 = usa MinLedge)
+	int		stableHold;			// 1 = parado na parede, o corpo fica fixo (sem recalcular a cada quadro): nada de oscilar nem de tremer a camara
 	int		protrusionAssist;	// 1 = beirais, cornijas e saliencias: salta por cima, segue a parede recuada, afasta o corpo
 };
 

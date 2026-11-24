@@ -106,6 +106,18 @@ int main()
 	}
 	{
 		World w; w.boxes.push_back({0, 200, -BIG, BIG, -10, 600});
+		w.boxes.push_back({-30, 0, -50, 50, 95, 105});					// saliencia fina a altura da cabeca (entre os raios antigos)
+		float p = ClearancePush(w, fx, fy, px, py, 0.0f, 30.0f);
+		CHECK(fabsf(p - 16.0f) < 0.01f, "saliencia fina a 100 (30 de fundo): afasta 16");
+	}
+	{
+		World w; w.boxes.push_back({0, 200, -BIG, BIG, -10, 600});
+		w.boxes.push_back({-25, 0, -50, 50, 38, 44});					// saliencia fina a altura do joelho
+		float p = ClearancePush(w, fx, fy, px, py, 0.0f, 30.0f);
+		CHECK(fabsf(p - 11.0f) < 0.01f, "saliencia fina a 40: afasta 11");
+	}
+	{
+		World w; w.boxes.push_back({0, 200, -BIG, BIG, -10, 600});
 		w.boxes.push_back({-200, 0, -50, 50, 100, 130});					// saliencia enorme a altura da cabeca
 		float p = ClearancePush(w, fx, fy, px, py, 0.0f, 30.0f);
 		CHECK(p == 0.0f || p <= 40.0f, "saliencia que ja envolve o jogador: limitado a 40");
@@ -174,6 +186,69 @@ int main()
 		World w; w.boxes.push_back({0, 200, -BIG, BIG, 0, 900});
 		Overhang o = PlanOverhangHop(w, fx, fy, px, py, pz, 125.0f, 180.0f, 30.0f);
 		CHECK(!o.ok, "parede lisa (nada por cima): recusa");
+	}
+
+	printf("BEIRAL RASO (a frente do corpo)\n");
+	{
+		World w; w.boxes.push_back({0, 200, -BIG, BIG, 0, 900});
+		w.boxes.push_back({-25, 0, -BIG, BIG, 430, 450});					// 25 de fundo: o centro (a 30 da parede) fica de fora
+		Overhang o = PlanOverhangHop(w, fx, fy, px, py, pz, 125.0f, 180.0f, 30.0f);
+		CHECK(o.ok, "beiral de 25 (nao cobre o centro): planeia o salto");
+		CHECK(o.ok && fabsf(o.destZ - 454.0f) < 0.01f, "  destino 4 acima do topo");
+		CHECK(o.ok && o.edgeOut < 0.0f, "  bordo exterior entre o centro e a parede");
+	}
+	{
+		World w; w.boxes.push_back({0, 200, -BIG, BIG, 0, 900});
+		w.boxes.push_back({-4, 0, -BIG, BIG, 430, 450});					// 4 de fundo: nao chega ao corpo
+		Overhang o = PlanOverhangHop(w, fx, fy, px, py, pz, 125.0f, 180.0f, 30.0f);
+		CHECK(!o.ok, "friso de 4 (nao chega a frente do corpo): ignora");
+	}
+
+	printf("ESTABILIDADE (parado junto a um pilar fino que o raio ora acerta ora falha)\n");
+	{
+		// 5 s a 60 fps. O 'alvo' do afastamento alterna 0 / 25 / 0 / 25 ... (o raio acerta e falha), com ruido de +-1.5 na posicao medida.
+		const float dt = 1.0f / 60.0f;
+		unsigned seed = 12345;
+		auto noise = [&]() { seed = seed * 1664525u + 1013904223u; return ((seed >> 8) & 0xFFFF) / 65535.0f * 3.0f - 1.5f; };
+
+		// ANTIGO: afastamento = alvo, e posicao = o que o raio disse, todos os quadros
+		float oldPush = 0, oldMin = 1e9f, oldMax = -1e9f, oldTravel = 0, oldPrev = 0;
+		// NOVO: afastamento suavizado, e parado so corrige fora da zona morta
+		float newPush = 0, newMin = 1e9f, newMax = -1e9f, newTravel = 0, newPrev = 0, pos = 30.0f;
+		float oldPos = 30.0f, oldPosTravel = 0, newPosTravel = 0;
+		for(int i = 0; i < 300; ++i)
+		{
+			const float target = ((i / 3) % 2 == 0) ? 0.0f : 25.0f;		// muda a cada 3 quadros
+			// antigo
+			oldPush = target;
+			const float oldWanted = 30.0f + oldPush + noise();
+			oldPosTravel += fabsf(oldWanted - oldPos); oldPos = oldWanted;
+			if(oldPos < oldMin) oldMin = oldPos; if(oldPos > oldMax) oldMax = oldPos;
+			oldTravel += fabsf(oldPush - oldPrev); oldPrev = oldPush;
+			// novo (parado: o afastamento nao se recalcula, usa o ultimo)
+			newPush = StepPush(newPush, 0.0f /* parado: mantem */ == 0.0f ? newPush : target, dt);
+			const float wanted = 30.0f + newPush + noise();
+			if(!HoldPosition(true, wanted - pos, 0.0f, 1.0f)) { newPosTravel += fabsf(wanted - pos); pos = wanted; }
+			if(pos < newMin) newMin = pos; if(pos > newMax) newMax = pos;
+			newTravel += fabsf(newPush - newPrev); newPrev = newPush;
+		}
+		printf("  antigo: posicao varia %.1f..%.1f, percurso total %.0f unidades\n", oldMin, oldMax, oldPosTravel);
+		printf("  novo:   posicao varia %.1f..%.1f, percurso total %.0f unidades\n", newMin, newMax, newPosTravel);
+		CHECK(oldMax - oldMin > 20.0f, "o comportamento antigo oscilava (amplitude > 20)");
+		CHECK(newMax - newMin < 3.1f && newPosTravel < 1.0f, "parado, a posicao fica fixa (zona morta)");
+	}
+	{
+		// em movimento: o afastamento sobe depressa e desce devagar, sem saltos
+		float p = 0; bool ok = true; const float dt = 1.0f / 60.0f;
+		for(int i = 0; i < 30; ++i) p = StepPush(p, 25.0f, dt);
+		ok = ok && fabsf(p - 25.0f) < 0.01f;
+		const float afterOne = StepPush(p, 0.0f, dt);
+		ok = ok && (p - afterOne) < 1.1f;						// desce no maximo ~1 unidade por quadro
+		CHECK(ok, "afastamento: sobe depressa (25 em < 0,5 s), desce devagar (60/s)");
+		CHECK(StepPush(10.0f, 10.0f, -1.0f) == 10.0f && StepPush(10.0f, 10.0f, 0.0f) == 10.0f, "dt invalido: nao muda");
+		CHECK(!HoldPosition(false, 0.0f, 0.0f, 1.0f), "em movimento nunca fica parado");
+		CHECK(!HoldPosition(true, 4.0f, 0.0f, 1.0f), "parado mas o erro passa da zona morta: corrige");
+		CHECK(!HoldPosition(true, 0.0f, 0.0f, 0.9f), "parado mas a parede girou: corrige");
 	}
 
 	printf("ENTRADAS INVALIDAS\n");

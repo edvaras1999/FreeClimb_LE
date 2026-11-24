@@ -115,6 +115,7 @@ namespace
 		{ "IgnoreActors",		'i', &g_cfg.ignoreActors,		1.0f,	0.0f,	1.0f,	"1 = NPCs, creatures and bodies are never treated as a wall or a ledge." },
 		{ "EntryHeightCheck",	'i', &g_cfg.entryHeightCheck,	1.0f,	0.0f,	1.0f,	"1 = only cling to something taller than EntryMinHeight (chests, small rocks and steps are left to the normal jump / parkour mod). 0 = old behaviour." },
 		{ "EntryMinHeight",		'f', &g_cfg.entryMinHeight,		0.0f,	0.0f,	300.0f,	"Min height of the obstacle (above the ground) to cling to it. 0 = use MinLedge. The wall must reach about this height + 30." },
+		{ "StableHold",			'i', &g_cfg.stableHold,			1.0f,	0.0f,	1.0f,	"1 = standing still on the wall, the body is held exactly where it is (no per-frame re-fitting: no wobble, no camera shake). 0 = old behaviour." },
 		{ "ProtrusionAssist",	'i', &g_cfg.protrusionAssist,	1.0f,	0.0f,	1.0f,	"1 = eaves, cornices and bulges: hop over an overhang above the head, follow a wall that steps back, keep the body clear of bulges. 0 = flat walls only." },
 	};
 	const int kNumOpts = sizeof(g_opts) / sizeof(g_opts[0]);

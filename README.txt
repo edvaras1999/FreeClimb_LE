@@ -75,13 +75,25 @@ CHANGES (source, not yet released)
   pressed. With a 642-entry skeleton (CME, SOS, Devourment...) that is tens of thousands of calls: seconds of frozen game.
   Now one pass over the entries (about 50 times fewer calls, same result; see tools/test_bonebinding.cpp). The log line
   "skeleton target refreshed ... (N ms)" now shows how long it took.
-- New INI keys: IgnoreActors, EntryHeightCheck, EntryMinHeight, ProtrusionAssist (no menu entries).
+- Wobble when standing still on a wall or tree (and the camera shaking with it): the wall was re-read every frame and the body
+  glued to whatever the ray said, so a thin pillar or an edge that the ray hit one frame and missed the next made the body jump
+  back and forth (and sometimes pushed it away from the surface). Now, standing still, the body is held exactly where it is
+  (the wall is only re-read every 300 ms, and only corrected if it is off by more than 3 units / 6 degrees); while moving, the
+  push away from bulges rises fast and falls slowly. StableHold=0 restores the old behaviour.
+- Clipping into bulges: the body is now sampled at 4 heights (plus the chest), and a shallow bulge above the head that does not
+  cover the centre of the body (but the chest and head pass through it) is hopped over like an eave, when a hop is possible.
+- Camera diagnostics: the log now always records "camera: state changed 9 -> 0 while clinging" (third -> first person), and with
+  Verbose=1 the camera line says WHAT blocks the camera (layer, distance, height, normal) plus the zoom. See KNOWN ISSUES.
+- New INI keys: StableHold, IgnoreActors, EntryHeightCheck, EntryMinHeight, ProtrusionAssist (no menu entries).
 - Test of the new geometry outside the game: tools/test_climbprobe.cpp (g++ -std=c++14 -Ifreeclimb-le).
 
 KNOWN ISSUES
 - First person with Enhanced Camera: head stuck on the vertical axis, hands not visible.
 - Some ledges are climbed as if there were an invisible step (the log records every accepted ledge).
-- In third person the camera can come close or cross the wall when it is on the wall side of the character.
+- In third person the camera can collapse onto the character's head (it looks like first person) when something blocks it, for
+  example an eave above or the ground below while looking up the wall. The third-person camera collision is a game data layer
+  (L_CAMERA), not something this plugin can switch off safely; mods that edit that layer remove the problem globally.
+  Run with Verbose=1 and send the "camera:" lines from the log to pin down what blocks it.
 - NPC follower: disabled.
 
 CREDITS AND LICENSE

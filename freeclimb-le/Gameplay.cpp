@@ -15,6 +15,7 @@
 // As afinacoes ficam em Data\SKSE\Plugins\FreeClimbLE.ini e sao relidas de cada vez que o personagem se agarra.
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 #include <windows.h>
 
@@ -634,6 +635,9 @@ namespace
 	}
 
 	// O estado "agarrado", a partir da posicao (g_pos) e da normal (g_n) atuais.
+	UInt32 g_camLastState = 0xFFFFFFFF;		// estado da camara visto da ultima vez (ver LogCamera)
+	DWORD g_followTick = 0;					// ultima vez que a parede foi relida (parado, so de 300 em 300 ms)
+
 	void EnterCling()
 	{
 		g_phase = 0.0f; g_motion = kHang; g_wasRun = false; g_bridgeSecs = 0.0f; g_runBlend = 0.0f; g_runReset = true;
@@ -644,6 +648,8 @@ namespace
 		for(int k = 0; k < 4; ++k) g_fitDelta[k] = 0.0f;
 		g_slideV = 0.0f;
 		g_runLift = 0.0f;
+		g_followTick = 0;
+		g_camLastState = 0xFFFFFFFF;
 		Show(kHang, 0.0f, 0, FC_STYLE_WALL);
 		Options::PlaySoundFx(Options::kSndGrip);
 		InterlockedExchange(&g_state, kCling);
@@ -955,6 +961,18 @@ namespace
 	DWORD g_camLogTick = 0;
 	void LogCamera(Actor * player, DWORD now)
 	{
+		// Sempre (nao so em Verbose): quando o estado da camara muda enquanto se esta agarrado (3a pessoa <-> 1a pessoa),
+		// fica no log. Diz se a camara FOI mesmo para a 1a pessoa, ou se so colapsou para junto da cabeca (que parece o mesmo).
+		{
+			void * state = Engine::CameraState();
+			const UInt32 id = (state && Engine::Readable(state, 0x10)) ? Engine::CameraStateID(state) : 0xFFFFFFFF;
+			if(id != g_camLastState)
+			{
+				if(g_camLastState != 0xFFFFFFFF)
+					_MESSAGE("camera: state changed %u -> %u while clinging (0 = first person, 9 = third person)", (unsigned)g_camLastState, (unsigned)id);
+				g_camLastState = id;
+			}
+		}
 		if(!g_cfg.verbose || (DWORD)(now - g_camLogTick) < 1000) return;
 		g_camLogTick = now;
 		PlayerCamera * camera = PlayerCamera::GetSingleton();
@@ -966,6 +984,7 @@ namespace
 		const float flat = sqrtf(dx * dx + dy * dy), dist = sqrtf(dx * dx + dy * dy + dz * dz);
 		const float side = dx * g_n[0] + dy * g_n[1];				// > 0: a camara esta do lado do personagem; < 0: do lado da parede
 		bool blocked = false;
+		char why[96]; why[0] = 0;
 		if(dist > 20.0f)
 		{
 			const NiPoint3 head(feet.x, feet.y, feet.z + 110.0f);
@@ -974,10 +993,20 @@ namespace
 			{
 				const Havok::Result r = CastRay(head, NiPoint3(hx / hl, hy / hl, hz / hl), hl, player);
 				blocked = r.didHit && r.distance < hl - 8.0f;
+				// O QUE bloqueia: a que altura/distancia, e se e chao, teto ou parede (para saber onde actuar)
+				if(blocked)
+					_snprintf_s(why, sizeof(why), _TRUNCATE, " (layer %u, hit %.0f of %.0f away, %+.0f in height, normal.z %+.2f)",
+								(unsigned)r.layer, (double)r.distance, (double)hl, (double)(r.hitPosition.z - head.z), (double)r.normal.z);
 			}
 		}
-		_MESSAGE("camera: distance %.0f (horizontal %.0f, height %+.0f), side %+.0f%s%s", (double)dist, (double)flat, (double)dz, (double)side,
-				 side < 10.0f ? " - ON THE WALL SIDE" : "", blocked ? " - BLOCKED by geometry" : "");
+
+		// o estado da camara e o zoom (so leitura, com a memoria verificada)
+		char cam3[80]; cam3[0] = 0;
+		void * state = Engine::CameraState();
+		if(state && Engine::CameraStateID(state) == (UInt32)Engine::kCameraState_ThirdPerson && Engine::Readable((UInt8 *)state + Engine::ThirdPerson::kTargetZoomOffset, 8))
+			_snprintf_s(cam3, sizeof(cam3), _TRUNCATE, ", zoom %.2f (target %.2f)", (double)*(float *)((UInt8 *)state + Engine::ThirdPerson::kCurrentZoomOffset), (double)*(float *)((UInt8 *)state + Engine::ThirdPerson::kTargetZoomOffset));
+		_MESSAGE("camera: distance %.0f (horizontal %.0f, height %+.0f), side %+.0f%s%s%s%s", (double)dist, (double)flat, (double)dz, (double)side, cam3,
+				 side < 10.0f ? " - ON THE WALL SIDE" : "", blocked ? " - BLOCKED by geometry" : "", why);
 	}
 
 	// Caminho de um salto que SEGUE a superficie (pilares, arvores): pontos x, y, z e a normal (nx, ny) em cada um.
@@ -1463,6 +1492,24 @@ namespace
 					if(TryOverhangHop(player, true)) return;
 				}
 			}
+			else if(up && g_cfg.protrusionAssist && (DWORD)(now - g_overhangTry) > 700)
+			{
+				// Livre por cima do centro. Mas uma saliencia RASA (menos funda que a distancia a parede) nao cobre o centro e
+				// o peito e a cabeca atravessam-na. Sonda-se a frente do corpo; se ha como saltar por cima, salta; se nao
+				// ha, deixa-se passar como antes (so se evita o corte quando existe uma alternativa).
+				static const float frontOff[2] = { 10.0f, 18.0f };
+				bool shallow = false;
+				for(int k = 0; k < 2 && !shallow; ++k)
+				{
+					const float ox = g_pos[0] - g_n[0] * frontOff[k], oy = g_pos[1] - g_n[1] * frontOff[k];
+					shallow = FreeDistance(player, ox, oy, g_pos[2] + g_cfg.headHeight, 0.0f, 0.0f, 1.0f, vz * dt + 12.0f, headTop, 1) < vz * dt + 12.0f;
+				}
+				if(shallow)
+				{
+					g_overhangTry = now;
+					if(TryOverhangHop(player, true)) return;
+				}
+			}
 		}
 		if(vt != 0.0f)
 		{
@@ -1476,6 +1523,15 @@ namespace
 		g_pos[0] += (-g_n[1]) * vt * dt;
 		g_pos[1] += ( g_n[0]) * vt * dt;
 		g_pos[2] += vz * dt;
+
+		// Parado, o corpo fica EXATAMENTE onde esta: reler a parede a cada quadro e colar o personagem ao que o raio diz
+		// faz oscilar (um pilar fino ou uma aresta que o raio ora acerta ora falha) e a camara treme com ele. Parado, a
+		// parede so e relida de 300 em 300 ms, e so se corrige o que passa da zona morta (ClimbProbe::HoldPosition).
+		const bool still = (vt == 0.0f && vz == 0.0f);
+		const bool holdPose = g_cfg.stableHold && still && (DWORD)(now - g_followTick) < 300;
+		if(!holdPose)
+		{
+		g_followTick = now;
 
 		// seguir a parede: um raio ao peito e outro a cabeca, na direcao da parede (-normal)
 		const float fx = -g_n[0], fy = -g_n[1];
@@ -1537,9 +1593,21 @@ namespace
 				return;
 			}
 		}
-		g_push = ClearancePushAt(w, fx, fy, g_pos[0], g_pos[1], g_pos[2]);		// corpo livre de saliencias a outra altura
-		g_n[0] = w.nx; g_n[1] = w.ny;
-		SnapPos(w.x + g_n[0] * (g_cfg.gap + g_push), w.y + g_n[1] * (g_cfg.gap + g_push));
+		{
+			// afastamento do corpo (saliencias a outra altura): parado nao se recalcula; em movimento sobe depressa e desce devagar
+			const float pushTarget = still ? g_push : ClearancePushAt(w, fx, fy, g_pos[0], g_pos[1], g_pos[2]);
+			g_push = ClimbProbe::StepPush(g_push, pushTarget, dt);
+
+			const float tx = w.x + w.nx * (g_cfg.gap + g_push), ty = w.y + w.ny * (g_cfg.gap + g_push);
+			float dotN = w.nx * g_n[0] + w.ny * g_n[1];
+			if(dotN > 1.0f) dotN = 1.0f; else if(dotN < -1.0f) dotN = -1.0f;
+			if(!(g_cfg.stableHold && ClimbProbe::HoldPosition(still, tx - g_pos[0], ty - g_pos[1], dotN)))
+			{
+				g_n[0] = w.nx; g_n[1] = w.ny;
+				SnapPos(tx, ty);
+			}
+		}
+		}		// if(!holdPose)
 
 		// chegou ao topo? (a subir, sem parede a altura da cabeca) -> passar por cima da borda
 		if(up)

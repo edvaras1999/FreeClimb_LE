@@ -93,9 +93,10 @@ namespace ClimbProbe
 	{
 		if(!Finite(fx) || !Finite(fy) || !Finite(px) || !Finite(py) || !Finite(pz) || !(chestDist > 0.0f)) return 0.0f;
 
-		static const float heights[2] = { 20.0f, 115.0f };
+		// quatro alturas (alem do peito, que e a referencia): uma saliencia fina entre dois raios passava sem ser vista
+		static const float heights[4] = { 15.0f, 40.0f, 100.0f, 122.0f };
 		float worst = 0.0f;
-		for(int k = 0; k < 2; ++k)
+		for(int k = 0; k < 4; ++k)
 		{
 			const Hit h = ray(px, py, pz + heights[k], fx, fy, 0.0f, chestDist + 10.0f);
 			if(!WallLike(h, fx, fy)) continue;
@@ -107,6 +108,29 @@ namespace ClimbProbe
 		if(push < 0.0f) push = 0.0f;
 		if(push > maxPush) push = maxPush;
 		return push;
+	}
+
+	// ------------------------------------------------------------------------------------------------------------
+	// ESTABILIDADE. Ler a parede todos os quadros e colar o personagem ao que o raio disse faz oscilar: um pilar fino ou
+	// uma aresta que o raio ora acerta ora falha faz o afastamento saltar de 0 a 40 e voltar, quadro a quadro; o corpo
+	// treme, a camara treme com ele, e "as vezes afasta o personagem da superficie".
+	//
+	// StepPush: o afastamento sobe depressa (para nao atravessar a saliencia) mas desce devagar (nao salta de volta
+	// quando o raio falha por um quadro).
+	inline float StepPush(float current, float target, float dt)
+	{
+		if(!(dt > 0.0f) || !(dt < 1.0f)) dt = 0.016f;
+		if(target > current) { current += 300.0f * dt; if(current > target) current = target; }
+		else if(target < current) { current -= 60.0f * dt; if(current < target) current = target; }
+		return current;
+	}
+
+	// HoldPosition: parado, so se corrige a posicao/orientacao se o erro passar da zona morta (3 unidades, ~6 graus).
+	// ex,ey = onde o raio diz que devia estar menos onde esta; dotNormals = normal nova . normal atual.
+	inline bool HoldPosition(bool still, float ex, float ey, float dotNormals)
+	{
+		if(!still) return false;
+		return (ex * ex + ey * ey) < 3.0f * 3.0f && dotNormals > 0.995f;
 	}
 
 	// ------------------------------------------------------------------------------------------------------------
@@ -141,13 +165,22 @@ namespace ClimbProbe
 
 		const float kEdgeProbe = 100.0f, kMaxEdgeOut = 80.0f;
 
-		// 1. a face de baixo
-		const Hit up = ray(px, py, pz + headHeight, 0.0f, 0.0f, 1.0f, 110.0f);
-		if(!up.hit || !Finite(up.z)) { o.reason = "nothing above the head"; return o; }
+		// 1. a face de baixo. Sonda-se no centro E a frente do corpo (10 e 18 unidades para a parede): uma saliencia rasa
+		//    (menos funda que a distancia a parede) nao esta por cima do centro, mas o peito e a cabeca passam por ela.
+		static const float frontOffsets[3] = { 0.0f, 10.0f, 18.0f };
+		Hit up; up.hit = false; up.dist = up.x = up.y = up.z = up.nx = up.ny = up.nz = 0.0f;
+		float bx = px, by = py;
+		for(int k = 0; k < 3; ++k)
+		{
+			const float ox = px + fx * frontOffsets[k], oy = py + fy * frontOffsets[k];
+			const Hit h = ray(ox, oy, pz + headHeight, 0.0f, 0.0f, 1.0f, 110.0f);
+			if(h.hit && Finite(h.z) && (!up.hit || h.z < up.z)) { up = h; bx = ox; by = oy; }
+		}
+		if(!up.hit) { o.reason = "nothing above the head"; return o; }
 		o.underZ = up.z;
 
-		// 2. o topo, a partir de cima (comeca 100 acima da face de baixo)
-		const Hit down = ray(px, py, o.underZ + 100.0f, 0.0f, 0.0f, -1.0f, 100.0f);
+		// 2. o topo, a partir de cima (comeca 100 acima da face de baixo), no ponto onde se achou a face de baixo
+		const Hit down = ray(bx, by, o.underZ + 100.0f, 0.0f, 0.0f, -1.0f, 100.0f);
 		if(!down.hit || !Finite(down.z) || down.nz < 0.5f) { o.reason = "no walkable top on the obstruction (too thick, or a steep roof)"; return o; }
 		o.topZ = down.z;
 		o.destZ = o.topZ + 4.0f;
@@ -155,13 +188,15 @@ namespace ClimbProbe
 		if(o.topZ < pz + headHeight - 5.0f) { o.reason = "inconsistent obstruction"; return o; }
 
 		// 3. espaco por cima do topo
-		const Hit roof = ray(px, py, o.topZ + 8.0f, 0.0f, 0.0f, 1.0f, 110.0f);
+		const Hit roof = ray(bx, by, o.topZ + 8.0f, 0.0f, 0.0f, 1.0f, 110.0f);
 		if(roof.hit && roof.dist < 100.0f) { o.reason = "no head room above the obstruction"; return o; }
 
 		// 4. e um beiral? Raio de FORA para a parede, a meio da espessura: tem de bater na face exterior da saliencia.
 		const float zMid = 0.5f * (o.underZ + o.topZ);
-		const Hit edge = ray(px - fx * kEdgeProbe, py - fy * kEdgeProbe, zMid, fx, fy, 0.0f, kEdgeProbe);
-		if(!edge.hit) { o.reason = "obstruction too wide (a floor or ceiling, not an eave)"; return o; }
+		//    O raio vai ate ao plano da parede (kEdgeProbe + gap): uma saliencia rasa tem a face exterior entre o centro e a
+		//    parede. Um acerto junto ao proprio plano da parede (a menos de 6) e a parede, nao uma saliencia.
+		const Hit edge = ray(px - fx * kEdgeProbe, py - fy * kEdgeProbe, zMid, fx, fy, 0.0f, kEdgeProbe + gap);
+		if(!edge.hit || edge.dist > kEdgeProbe + gap - 6.0f) { o.reason = "obstruction too wide (a floor or ceiling, not an eave)"; return o; }
 		if(edge.nx * fx + edge.ny * fy > -0.2f) { o.reason = "obstruction edge does not face out"; return o; }
 		o.edgeOut = kEdgeProbe - edge.dist;
 		if(o.edgeOut > kMaxEdgeOut) { o.reason = "obstruction sticks out too far"; return o; }
