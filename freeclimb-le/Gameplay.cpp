@@ -282,9 +282,12 @@ namespace
 		if(g_curStyle == FC_STYLE_RUN) g_runReset = false;
 	}
 
+	void ReleasePlayerPhysics();		// definida mais abaixo (precisa do jogador)
+
 	void HidePose()
 	{
 		SceneHooksSetPose(false, NULL, 0, 0.0f);
+		ReleasePlayerPhysics();			// todos os caminhos que saem do 'agarrado' passam por aqui: a fisica volta sempre
 	}
 
 	struct InputState { volatile LONG forward, back, left, right, sprint, jumpEdge, sneakEdge; volatile float ax, ay; };
@@ -404,6 +407,59 @@ namespace
 		}
 	};
 
+	// Enquanto o mod coloca o jogador, a simulacao fisica do controlador fica DESLIGADA (a mesma bandeira que ja se usava nos
+	// seguidores). Antes, o mod fazia 'warp' da posicao a cada tick mas o Havok continuava a simular o controlador: contactos
+	// com a parede (distancia minima de contacto), desdepenetracao, gravidade entre dois ticks... A posicao visivel alternava
+	// entre a nossa e a resolvida pela fisica: o corpo aproximava-se e afastava-se da parede, deslizava para os lados, para cima
+	// e para baixo, e a camara (que segue o ator) tremia. Com a simulacao desligada so o mod move o corpo.
+	void * g_simCtrl = NULL;			// o controlador do jogador em que se desligou a simulacao (para a repor)
+	float g_lastPlaced[3] = { 0, 0, 0 };	// onde se colocou o jogador pela ultima vez
+	bool g_lastPlacedValid = false;
+	int g_holdBad = 0;					// ticks seguidos em que o ator nao seguiu o controlador
+	bool g_holdDisabled = false;		// a pausa da fisica foi desligada nesta sessao (o ator nao seguia o controlador)
+
+	void HoldPlayerPhysics(void * ctrl)
+	{
+		if(!ctrl || g_simCtrl == ctrl) return;
+		g_simCtrl = ctrl;
+		Engine::ControllerFlags(ctrl) |= Engine::Controller::kFlag_NoSim;
+		_MESSAGE("gameplay: controller simulation paused while clinging");
+	}
+
+	void ReleasePlayerPhysics()
+	{
+		if(!g_simCtrl) return;
+		Actor * player = ThePlayer();
+		void * ctrl = player ? Engine::CharController(player) : NULL;
+		if(ctrl && ctrl == g_simCtrl)				// se o controlador mudou (novo corpo, nova celula) o antigo ja nao existe: nada a repor
+		{
+			Engine::ControllerFlags(ctrl) &= ~Engine::Controller::kFlag_NoSim;
+			_MESSAGE("gameplay: controller simulation resumed");
+		}
+		g_simCtrl = NULL;
+		g_lastPlacedValid = false;
+		g_holdBad = 0;
+	}
+
+	// Com a simulacao pausada o ator TEM de continuar a seguir o controlador. Se nao seguir (a posicao do ator ficou a mais de
+	// 30 unidades de onde se colocou, 8 ticks seguidos), a pausa nao funciona neste jogo: repoe-se a fisica, desliga-se a pausa
+	// para o resto da sessao e fica um aviso no log. Antes isto deixava o jogador sem se mover ao agarrar-se.
+	void CheckPhysicsHold()
+	{
+		Actor * player = ThePlayer();
+		if(!player || !g_simCtrl || !g_lastPlacedValid) return;
+		const NiPoint3 actual = Engine::Position(player);
+		const float dx = actual.x - g_lastPlaced[0], dy = actual.y - g_lastPlaced[1], dz = actual.z - g_lastPlaced[2];
+		if(dx * dx + dy * dy + dz * dz > 30.0f * 30.0f) ++g_holdBad; else g_holdBad = 0;
+		if(g_holdBad >= 8)
+		{
+			_MESSAGE("gameplay: WARNING - with the simulation paused the actor does not follow the controller (%.0f units away). Resuming the simulation for this session; set HoldPhysics=0 in the .ini if this repeats.",
+					 (double)sqrtf(dx * dx + dy * dy + dz * dz));
+			g_holdDisabled = true;
+			ReleasePlayerPhysics();
+		}
+	}
+
 	void PlaceController(void * ctrl, float x, float y, float z)
 	{
 		// Uma posicao NaN/infinita entregue ao Havok pode bloquear o jogo: nunca sai daqui.
@@ -412,6 +468,15 @@ namespace
 			static bool warned = false;
 			if(!warned) { warned = true; _MESSAGE("gameplay: WARNING - refused to move the controller to an invalid position (%f, %f, %f)", (double)x, (double)y, (double)z); }
 			return;
+		}
+		if(g_cfg.holdPhysics && !g_holdDisabled)
+		{
+			Actor * me = ThePlayer();
+			if(me && ctrl == Engine::CharController(me))		// so o do jogador (os seguidores tratam do seu)
+			{
+				HoldPlayerPhysics(ctrl);
+				g_lastPlaced[0] = x; g_lastPlaced[1] = y; g_lastPlaced[2] = z; g_lastPlacedValid = true;
+			}
 		}
 		const float scale = Engine::HavokScale();
 		__declspec(align(16)) float target[4];
@@ -633,6 +698,7 @@ namespace
 		Actor * player = ThePlayer();
 		void * ctrl = player ? Engine::CharController(player) : NULL;
 		ResetFall(player, ctrl);		// a queda conta a partir do ponto onde se larga (no chao: sem dano)
+		ReleasePlayerPhysics();		// a fisica volta ANTES do empurrao (senao a velocidade nao fazia nada)
 		if(ctrl)
 		{
 			// um pequeno empurrao para longe da parede, para nao ficar encostado a geometria ao cair
@@ -1639,6 +1705,13 @@ namespace
 						 still ? "still" : "moving", (double)w.dist, (double)g_cfg.gap, (double)g_push, (double)measured, (double)pushTarget,
 						 (double)sqrtf((tx - g_pos[0]) * (tx - g_pos[0]) + (ty - g_pos[1]) * (ty - g_pos[1])), (double)(acosf(dotN) * 57.29578f),
 						 held ? "HELD" : "snapped");
+				// O desvio entre onde o mod colocou o corpo e onde o motor o tem agora: se a fisica estiver a lutar contra o 'warp',
+				// isto nao e zero. Com HoldPhysics=1 deve ser ~0.
+				const NiPoint3 actual = Engine::Position(player);
+				_MESSAGE("fit: actor is %.1f units from where it was placed (x %+.1f, y %+.1f, z %+.1f), controller simulation %s",
+						 (double)sqrtf((actual.x - g_pos[0] - g_off[0]) * (actual.x - g_pos[0] - g_off[0]) + (actual.y - g_pos[1] - g_off[1]) * (actual.y - g_pos[1] - g_off[1]) + (actual.z - g_pos[2]) * (actual.z - g_pos[2])),
+						 (double)(actual.x - g_pos[0] - g_off[0]), (double)(actual.y - g_pos[1] - g_off[1]), (double)(actual.z - g_pos[2]),
+						 g_simCtrl ? "PAUSED" : "running");
 			}
 		}
 		}		// if(!holdPose)
@@ -1677,6 +1750,8 @@ namespace
 	// O tick corre dentro da atualizacao do esqueleto do jogo (thread de trabalho): uma falha aqui deitaria o jogo abaixo.
 	void OnTickGuarded()
 	{
+		if(g_state == kIdle && g_simCtrl) ReleasePlayerPhysics();		// rede de seguranca: nunca deixar o jogador sem fisica
+		if(g_state == kCling && g_simCtrl) CheckPhysicsHold();
 		if(g_disabled) return;
 		StepBegin(0, "skeleton tick");
 		__try

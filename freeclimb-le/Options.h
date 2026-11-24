@@ -90,6 +90,7 @@ struct FCConfig
 	float	entryMinHeight;		// altura minima do obstaculo para se agarrar (0 = usa MinLedge)
 	float	bumpTolerance;		// saliencias mais rasas que isto (unidades) nao afastam o corpo da parede
 	float	maxBumpPush;		// o mais que o corpo se afasta da parede para nao atravessar uma saliencia
+	int		holdPhysics;		// 1 = enquanto agarrado, a simulacao fisica do controlador do jogador fica desligada (o mod e o unico a mover o corpo)
 	int		stableHold;			// 1 = parado na parede, o corpo fica fixo (sem recalcular a cada quadro): nada de oscilar nem de tremer a camara
 	int		protrusionAssist;	// 1 = beirais, cornijas e saliencias: salta por cima, segue a parede recuada, afasta o corpo
 };

@@ -117,6 +117,7 @@ namespace
 		{ "EntryMinHeight",		'f', &g_cfg.entryMinHeight,		0.0f,	0.0f,	300.0f,	"Min height of the obstacle (above the ground) to cling to it. 0 = use MinLedge. The wall must reach about this height + 30." },
 		{ "BumpTolerance",		'f', &g_cfg.bumpTolerance,		18.0f,	4.0f,	40.0f,	"Bulges shallower than this (units) do not push the body away from the wall. Lower = the body clips less but floats further from rough rock and trees; higher = hugs the surface but may clip into bulges." },
 		{ "MaxBumpPush",		'f', &g_cfg.maxBumpPush,			30.0f,	0.0f,	60.0f,	"Most the body is moved away from the wall to clear a bulge (units). 0 = never." },
+		{ "HoldPhysics",		'i', &g_cfg.holdPhysics,			1.0f,	0.0f,	1.0f,	"1 = while clinging, the physics simulation of the player's character controller is paused (this plugin is the only thing moving the body). Fixes the body drifting in and out of the wall, sideways, up and down, and the camera shaking. 0 = old behaviour." },
 		{ "StableHold",			'i', &g_cfg.stableHold,			1.0f,	0.0f,	1.0f,	"1 = standing still on the wall, the body is held exactly where it is (no per-frame re-fitting: no wobble, no camera shake). 0 = old behaviour." },
 		{ "ProtrusionAssist",	'i', &g_cfg.protrusionAssist,	1.0f,	0.0f,	1.0f,	"1 = eaves, cornices and bulges: hop over an overhang above the head, follow a wall that steps back, keep the body clear of bulges. 0 = flat walls only." },
 	};
