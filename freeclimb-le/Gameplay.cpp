@@ -465,7 +465,7 @@ namespace
 	{
 		if(!g_cfg.protrusionAssist || !w.found) return 0.0f;
 		PlayerRay ray(ThePlayer());
-		return ClimbProbe::ClearancePush(ray, fx, fy, px, py, pz, w.dist);
+		return ClimbProbe::ClearancePush(ray, fx, fy, px, py, pz, w.dist, g_cfg.bumpTolerance, g_cfg.maxBumpPush);
 	}
 
 	// A altura do chao por baixo de (x,y), a partir de z (usada na entrada a meio de um salto). Sem chao: devolve z.
@@ -489,7 +489,7 @@ namespace
 		return free;
 	}
 
-	struct Ledge { float wallDistance, height, topZ; };
+	struct Ledge { float wallDistance, height, topZ, forward; };		// forward: ate onde o personagem anda para ficar de pe em cima
 
 	// O topo de uma borda a frente de (px,py,pz) na direcao (fx,fy): parede, superficie plana por cima e espaco para a cabeca.
 	bool FindLedge(Actor * player, float fx, float fy, float px, float py, float pz, Ledge * out, const char ** reason)
@@ -510,14 +510,25 @@ namespace
 		const Havok::Result clear = CastRay(Add(top.hitPosition, NiPoint3(0, 0, 8.0f)), NiPoint3(0, 0, 1), 110.0f, player);
 		if(clear.didHit && clear.distance < 100.0f) { *reason = "no head room on top"; return false; }
 
+		// Onde o personagem fica de pe. O topo foi medido a wall+25 mas ele e colocado mais a frente: numa rampa (um telhado,
+		// normal.z 0,7-0,85) a superficie ali e mais alta e ele ficava ENTERRADO (o motor empurrava-o para fora). Mede-se no
+		// ponto final; tenta-se 40, 32 e 24 unidades alem da parede (uma borda estreita), e exige-se chao andavel, nenhum
+		// muro/parapeito pelo caminho e espaco para a cabeca.
+		float forward = 0.0f, standZ = 0.0f;
+		{
+			PlayerRay ray(player);
+			if(!ClimbProbe::FindStandingSpot(ray, fx, fy, px, py, wall.dist, top.hitPosition.z, &forward, &standZ)) { *reason = "no standing room on top"; return false; }
+		}
+
 		out->wallDistance = wall.dist;
-		out->height = height;
-		out->topZ = top.hitPosition.z;
+		out->height = standZ - pz;
+		out->topZ = standZ;
+		out->forward = forward;
 
 		// diagnostico das bordas: o que e esta "borda"? (se subir para algo invisivel, esta linha diz que colisao e)
-		_MESSAGE("gameplay: ledge accepted - height %.0f above the feet (top z %.1f at %.0f, %.0f), wall distance %.0f, top surface: collision layer %u, %s, form type %u, normal.z %.2f",
+		_MESSAGE("gameplay: ledge accepted - height %.0f above the feet (top z %.1f at %.0f, %.0f), wall distance %.0f, top surface: collision layer %u, %s, form type %u, normal.z %.2f, standing %.0f beyond the wall at z %.1f",
 				 (double)height, (double)top.hitPosition.z, (double)top.hitPosition.x, (double)top.hitPosition.y, (double)wall.dist,
-				 (unsigned)top.layer, top.hasReference ? "belongs to a placed object" : "NO placed object (terrain or loose collision)", (unsigned)top.formType, (double)top.normal.z);
+				 (unsigned)top.layer, top.hasReference ? "belongs to a placed object" : "NO placed object (terrain or loose collision)", (unsigned)top.formType, (double)top.normal.z, (double)(forward - wall.dist), (double)standZ);
 		return true;
 	}
 
@@ -593,7 +604,7 @@ namespace
 		const float secs = FC_MotionSeconds(kMantle);
 		if(!g_restOk || secs <= 0.0f) { *reason = "mantle animation not available"; return false; }
 
-		const float forward = ledge.wallDistance + 40.0f;
+		const float forward = ledge.forward;
 		g_mantleScaleZ = ledge.height / kMantleUp;
 		g_mantleScaleY = forward / kMantleForward;
 		g_mantleSecs = secs;
@@ -637,6 +648,8 @@ namespace
 	// O estado "agarrado", a partir da posicao (g_pos) e da normal (g_n) atuais.
 	UInt32 g_camLastState = 0xFFFFFFFF;		// estado da camara visto da ultima vez (ver LogCamera)
 	DWORD g_followTick = 0;					// ultima vez que a parede foi relida (parado, so de 300 em 300 ms)
+	DWORD g_fitLogTick = 0;
+	ClimbProbe::StillPush g_stillPush = { 0, 0.0f };		// trinco do afastamento quando se esta parado
 
 	void EnterCling()
 	{
@@ -649,6 +662,7 @@ namespace
 		g_slideV = 0.0f;
 		g_runLift = 0.0f;
 		g_followTick = 0;
+		g_stillPush.agree = 0; g_stillPush.lock = 0.0f;
 		g_camLastState = 0xFFFFFFFF;
 		Show(kHang, 0.0f, 0, FC_STYLE_WALL);
 		Options::PlaySoundFx(Options::kSndGrip);
@@ -1531,6 +1545,7 @@ namespace
 		const bool holdPose = g_cfg.stableHold && still && (DWORD)(now - g_followTick) < 300;
 		if(!holdPose)
 		{
+		const DWORD prevFollow = g_followTick ? g_followTick : now;
 		g_followTick = now;
 
 		// seguir a parede: um raio ao peito e outro a cabeca, na direcao da parede (-normal)
@@ -1594,17 +1609,36 @@ namespace
 			}
 		}
 		{
-			// afastamento do corpo (saliencias a outra altura): parado nao se recalcula; em movimento sobe depressa e desce devagar
-			const float pushTarget = still ? g_push : ClearancePushAt(w, fx, fy, g_pos[0], g_pos[1], g_pos[2]);
-			g_push = ClimbProbe::StepPush(g_push, pushTarget, dt);
+			// Afastamento do corpo (saliencias a outra altura). Mede-se em cada leitura da parede. Parado, usa-se uma media
+			// (um raio que ora acerta ora falha nao faz o corpo saltar) que RELAXA para 0 quando a saliencia ja la nao esta:
+			// antes ficava congelado no valor que tinha ao parar, e o personagem ficava longe da superficie.
+			const float measured = ClearancePushAt(w, fx, fy, g_pos[0], g_pos[1], g_pos[2]);
+			float stepDt = (float)(now - prevFollow) * 0.001f;			// tempo desde a leitura anterior (parado: ~0,3 s)
+			if(!(stepDt > 0.0f) || stepDt > 0.5f) stepDt = dt;
+			float pushTarget = measured;
+			if(still) pushTarget = ClimbProbe::StillPushTarget(&g_stillPush, measured, g_push, stepDt);
+			else { g_stillPush.agree = 0; g_stillPush.lock = 0.0f; }
+			g_push = ClimbProbe::StepPush(g_push, pushTarget, stepDt);
 
 			const float tx = w.x + w.nx * (g_cfg.gap + g_push), ty = w.y + w.ny * (g_cfg.gap + g_push);
 			float dotN = w.nx * g_n[0] + w.ny * g_n[1];
 			if(dotN > 1.0f) dotN = 1.0f; else if(dotN < -1.0f) dotN = -1.0f;
-			if(!(g_cfg.stableHold && ClimbProbe::HoldPosition(still, tx - g_pos[0], ty - g_pos[1], dotN)))
+			const bool held = g_cfg.stableHold && ClimbProbe::HoldPosition(still, tx - g_pos[0], ty - g_pos[1], dotN);
+			if(!held)
 			{
 				g_n[0] = w.nx; g_n[1] = w.ny;
 				SnapPos(tx, ty);
+			}
+
+			// telemetria (Verbose=1): o que o ajuste ao corpo esta a fazer. Se o personagem oscila ou fica longe da parede,
+			// esta linha diz porque (afastamento medido / suavizado / aplicado, e se a posicao foi corrigida ou mantida).
+			if(g_cfg.verbose && (DWORD)(now - g_fitLogTick) > 500)
+			{
+				g_fitLogTick = now;
+				_MESSAGE("fit: %s, wall at %.1f (gap %.0f), push applied %.1f (measured %.1f, target %.1f), position error %.1f, normal change %.1f deg, %s",
+						 still ? "still" : "moving", (double)w.dist, (double)g_cfg.gap, (double)g_push, (double)measured, (double)pushTarget,
+						 (double)sqrtf((tx - g_pos[0]) * (tx - g_pos[0]) + (ty - g_pos[1]) * (ty - g_pos[1])), (double)(acosf(dotN) * 57.29578f),
+						 held ? "HELD" : "snapped");
 			}
 		}
 		}		// if(!holdPose)

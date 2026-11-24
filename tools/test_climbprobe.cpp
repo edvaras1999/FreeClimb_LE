@@ -243,12 +243,129 @@ int main()
 		for(int i = 0; i < 30; ++i) p = StepPush(p, 25.0f, dt);
 		ok = ok && fabsf(p - 25.0f) < 0.01f;
 		const float afterOne = StepPush(p, 0.0f, dt);
-		ok = ok && (p - afterOne) < 1.1f;						// desce no maximo ~1 unidade por quadro
-		CHECK(ok, "afastamento: sobe depressa (25 em < 0,5 s), desce devagar (60/s)");
+		ok = ok && (p - afterOne) < 1.6f;						// desce no maximo ~1,5 unidades por quadro (90/s)
+		CHECK(ok, "afastamento: sobe depressa (25 em < 0,5 s), desce devagar (90/s)");
 		CHECK(StepPush(10.0f, 10.0f, -1.0f) == 10.0f && StepPush(10.0f, 10.0f, 0.0f) == 10.0f, "dt invalido: nao muda");
 		CHECK(!HoldPosition(false, 0.0f, 0.0f, 1.0f), "em movimento nunca fica parado");
 		CHECK(!HoldPosition(true, 4.0f, 0.0f, 1.0f), "parado mas o erro passa da zona morta: corrige");
 		CHECK(!HoldPosition(true, 0.0f, 0.0f, 0.9f), "parado mas a parede girou: corrige");
+	}
+
+	printf("ESTABILIDADE REAL (o mesmo caminho do jogo: trinco de 3 sondas + zona morta, sondas de 300 ms)\n");
+	{
+		// 20 s parado, 66 sondas de 0,3 s. mode 0: a medicao alterna ao acaso 0/25 (o pior caso: uma aresta no limite do raio)
+		//                                 mode 1: sempre 25 (saliencia real)      mode 2: sempre 0
+		auto run = [&](int mode, float * finalPush, int * changes, float * minGap)
+		{
+			unsigned seed = 99;
+			StillPush st = { 0, 0.0f };
+			float push = 0, pos = 30.0f; int n = 0; float lastChangeT = -10, minGapBetween = 1e9f;
+			for(int probe = 0; probe < 66; ++probe)
+			{
+				seed = seed * 1664525u + 1013904223u;
+				const float measured = mode == 0 ? (((seed >> 16) & 1) ? 25.0f : 0.0f) : (mode == 1 ? 25.0f : 0.0f);
+				const float target = StillPushTarget(&st, measured, push, 0.3f);
+				push = StepPush(push, target, 0.3f);
+				const float wanted = 30.0f + push;
+				if(!HoldPosition(true, wanted - pos, 0.0f, 1.0f))
+				{
+					const float t = probe * 0.3f;
+					if(n > 0 && t - lastChangeT < minGapBetween) minGapBetween = t - lastChangeT;
+					lastChangeT = t; ++n; pos = wanted;
+				}
+			}
+			*finalPush = push; *changes = n; *minGap = minGapBetween;
+		};
+		float fp, mg; int ch;
+		run(0, &fp, &ch, &mg);
+		printf("  aresta que alterna (pior caso): %d mudancas de posicao em 20 s, a mais rapida a %.1f s da anterior\n", ch, ch > 1 ? mg : 0.0f);
+		CHECK(ch <= 4 && (ch < 2 || mg >= 2.0f), "aresta que alterna: no maximo 4 mudancas lentas em 20 s (antes: dezenas por segundo)");
+		run(1, &fp, &ch, &mg); CHECK(fabsf(fp - 25.0f) < 0.01f && ch == 1, "saliencia real (sempre 25): o corpo afasta-se UMA vez e fica la");
+		run(2, &fp, &ch, &mg); CHECK(fp == 0.0f && ch == 0, "sem saliencia: push 0, nao se mexe");
+		// o erro anterior: o push ficava congelado. Aqui: saliencia presente (push 25) e depois desaparece: tem de voltar a 0.
+		StillPush st = { 0, 0.0f }; float push = 25.0f;
+		for(int probe = 0; probe < 30; ++probe) { const float t = StillPushTarget(&st, 0.0f, push, 0.3f); push = StepPush(push, t, 0.3f); }
+		CHECK(push == 0.0f, "a saliencia desaparece: o afastamento RELAXA para 0 (antes ficava congelado)");
+		// medicao que difere pouco (< 6): nunca mexe
+		StillPush s2 = { 0, 0.0f }; float p2 = 10.0f; bool moved = false;
+		for(int probe = 0; probe < 30; ++probe) { const float t = StillPushTarget(&s2, (probe & 1) ? 14.0f : 6.0f, p2, 0.3f); if(t != p2) moved = true; }
+		CHECK(!moved, "variacao de +-4 (dentro da zona morta): nunca mexe");
+	}
+	{
+		// zona morta do afastamento (rocha irregular): bossas pequenas nao afastam o corpo
+		World w; w.boxes.push_back({0, 200, -BIG, BIG, -10, 600});
+		w.boxes.push_back({-8, 0, -50, 50, 95, 105});					// bossa de 8
+		CHECK(ClearancePush(w, fx, fy, px, py, 0.0f, 30.0f, 18.0f, 30.0f) == 0.0f, "bossa de 8 (rocha): nao afasta");
+		World v; v.boxes.push_back({0, 200, -BIG, BIG, -10, 600});
+		v.boxes.push_back({-25, 0, -50, 50, 95, 105});					// saliencia de 25: 25 - 18 = 7
+		CHECK(fabsf(ClearancePush(v, fx, fy, px, py, 0.0f, 30.0f, 18.0f, 30.0f) - 7.0f) < 0.01f, "saliencia de 25 (tolerancia 18): afasta 7");
+		CHECK(ClearancePush(v, fx, fy, px, py, 0.0f, 30.0f, 18.0f, 5.0f) == 5.0f, "MaxBumpPush limita");
+		CHECK(ClearancePush(v, fx, fy, px, py, 0.0f, 30.0f, 22.0f, 30.0f) == 0.0f, "tolerancia 22: a mesma saliencia (push 3) cai na zona morta");
+	}
+
+	printf("PONTO DE CHEGADA DA SUBIDA\n");
+	{
+		// rampa: a partir de x=0 (plano da parede) o chao sobe 'slope' por unidade, a partir de z=topo. Raios verticais apenas.
+		struct SlopeWorld
+		{
+			float topAtWall, slope; bool parapet;
+			Hit operator()(float sx, float sy, float sz, float dx, float dy, float dz, float maxDist)
+			{
+				Hit h; h.hit = false; h.dist = h.x = h.y = h.z = h.nx = h.ny = h.nz = 0;
+				(void)sy; (void)dx; (void)dy;
+				const float x = sx;													// x medido a partir do plano da parede (em sx = 0)
+				if(dz < -0.5f && x > 0.0f)											// raio para baixo
+				{
+					const float z = topAtWall + slope * x, t = sz - z;
+					if(t >= 0.0f && t <= maxDist) { const float n = sqrtf(1 + slope * slope); h.hit = true; h.dist = t; h.x = sx; h.z = z; h.nx = -slope / n; h.nz = 1 / n; }
+				}
+				if(fabsf(dz) < 0.01f && dx > 0.5f && parapet)						// raio horizontal: parapeito 20 alem da parede
+				{
+					const float start = x, wallAt = 20.0f;
+					if(start < wallAt && wallAt - start <= maxDist) { h.hit = true; h.dist = wallAt - start; h.x = sx + h.dist; h.z = sz; h.nx = -1; }
+				}
+				return h;
+			}
+		};
+		float fw = 0, sz = 0;
+		{
+			SlopeWorld w = { 500.0f, 0.0f, false };
+			bool ok = FindStandingSpot(w, 1.0f, 0.0f, -30.0f, 0.0f, 30.0f, 500.0f, &fw, &sz);
+			CHECK(ok && fabsf(fw - 70.0f) < 0.01f && fabsf(sz - 500.0f) < 0.01f, "chao plano: fica a 40 alem da parede, a altura do topo");
+		}
+		{
+			SlopeWorld w = { 500.0f, 1.0f, false };								// 45 graus (normal.z 0,71)
+			bool ok = FindStandingSpot(w, 1.0f, 0.0f, -30.0f, 0.0f, 30.0f, 500.0f + 25.0f, &fw, &sz);	// topo medido a wall+25 (x = 25): z = 525
+			// no ponto de chegada (x = 40) o chao esta a 540: 15 acima do que o codigo antigo usava (era o enterramento)
+			CHECK(ok && fabsf(fw - 70.0f) < 0.01f && fabsf(sz - 540.0f) < 0.01f, "rampa de 45 graus: a altura final e medida no ponto de chegada (540, nao os 525 do topo medido)");
+		}
+		{
+			SlopeWorld w = { 500.0f, 2.0f, false };								// 63 graus (normal.z 0,45): nao andavel
+			CHECK(!FindStandingSpot(w, 1.0f, 0.0f, -30.0f, 0.0f, 30.0f, 530.0f, &fw, &sz), "rampa ingreme (normal.z 0,45): nao ha onde ficar de pe");
+		}
+		{
+			SlopeWorld w = { 500.0f, 0.0f, true };								// parapeito a 20 alem da parede: bloqueia o caminho
+			CHECK(!FindStandingSpot(w, 1.0f, 0.0f, -30.0f, 0.0f, 30.0f, 500.0f, &fw, &sz), "parapeito pelo caminho: recusa");
+		}
+		{
+			World w; w.boxes.push_back({0, 200, -BIG, BIG, -10, 500});			// parede com topo plano em z=500, 200 de largura
+			bool ok = FindStandingSpot(w, 1.0f, 0.0f, -30.0f, 0.0f, 30.0f, 500.0f, &fw, &sz);
+			CHECK(ok && fabsf(sz - 500.0f) < 0.01f, "topo plano (caixa): aceita");
+		}
+		{
+			World w; w.boxes.push_back({0, 28, -BIG, BIG, -10, 500});			// borda estreita: so 28 de largura alem do plano
+			bool ok = FindStandingSpot(w, 1.0f, 0.0f, -30.0f, 0.0f, 30.0f, 500.0f, &fw, &sz);
+			CHECK(ok && fabsf(fw - 54.0f) < 0.01f, "borda estreita (28): recua para o ponto a 24 da parede, em vez de ficar no ar");
+		}
+		{
+			World w; w.boxes.push_back({0, 200, -BIG, BIG, -10, 500});
+			w.boxes.push_back({0, 200, -BIG, BIG, 560, 600});					// teto baixo: sem espaco para a cabeca
+			CHECK(!FindStandingSpot(w, 1.0f, 0.0f, -30.0f, 0.0f, 30.0f, 500.0f, &fw, &sz), "teto baixo: recusa");
+		}
+		{
+			World w; w.boxes.push_back({0, 5, -BIG, BIG, -10, 500});			// topo de 5 de largura: nao ha onde ficar
+			CHECK(!FindStandingSpot(w, 1.0f, 0.0f, -30.0f, 0.0f, 30.0f, 500.0f, &fw, &sz), "topo de 5 de largura: nao ha onde ficar de pe");
+		}
 	}
 
 	printf("ENTRADAS INVALIDAS\n");

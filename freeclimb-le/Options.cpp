@@ -115,6 +115,8 @@ namespace
 		{ "IgnoreActors",		'i', &g_cfg.ignoreActors,		1.0f,	0.0f,	1.0f,	"1 = NPCs, creatures and bodies are never treated as a wall or a ledge." },
 		{ "EntryHeightCheck",	'i', &g_cfg.entryHeightCheck,	1.0f,	0.0f,	1.0f,	"1 = only cling to something taller than EntryMinHeight (chests, small rocks and steps are left to the normal jump / parkour mod). 0 = old behaviour." },
 		{ "EntryMinHeight",		'f', &g_cfg.entryMinHeight,		0.0f,	0.0f,	300.0f,	"Min height of the obstacle (above the ground) to cling to it. 0 = use MinLedge. The wall must reach about this height + 30." },
+		{ "BumpTolerance",		'f', &g_cfg.bumpTolerance,		18.0f,	4.0f,	40.0f,	"Bulges shallower than this (units) do not push the body away from the wall. Lower = the body clips less but floats further from rough rock and trees; higher = hugs the surface but may clip into bulges." },
+		{ "MaxBumpPush",		'f', &g_cfg.maxBumpPush,			30.0f,	0.0f,	60.0f,	"Most the body is moved away from the wall to clear a bulge (units). 0 = never." },
 		{ "StableHold",			'i', &g_cfg.stableHold,			1.0f,	0.0f,	1.0f,	"1 = standing still on the wall, the body is held exactly where it is (no per-frame re-fitting: no wobble, no camera shake). 0 = old behaviour." },
 		{ "ProtrusionAssist",	'i', &g_cfg.protrusionAssist,	1.0f,	0.0f,	1.0f,	"1 = eaves, cornices and bulges: hop over an overhang above the head, follow a wall that steps back, keep the body clear of bulges. 0 = flat walls only." },
 	};

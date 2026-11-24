@@ -84,7 +84,16 @@ CHANGES (source, not yet released)
   cover the centre of the body (but the chest and head pass through it) is hopped over like an eave, when a hop is possible.
 - Camera diagnostics: the log now always records "camera: state changed 9 -> 0 while clinging" (third -> first person), and with
   Verbose=1 the camera line says WHAT blocks the camera (layer, distance, height, normal) plus the zoom. See KNOWN ISSUES.
-- New INI keys: StableHold, IgnoreActors, EntryHeightCheck, EntryMinHeight, ProtrusionAssist (no menu entries).
+- Climbing onto a ledge with a slope (a roof, normal.z 0.7-0.85) buried the character: the height was measured 25 units past the wall
+  but the character was placed 40 past it, where a slope is higher. Now the standing spot is measured where the character will
+  actually stand (40, 32 or 24 units past the wall), with a walkable surface, no parapet in the way and head room; otherwise the
+  ledge is refused ("no standing room on top") instead of burying or floating the character. The log line says where it stands.
+- Floating away from the wall: the push away from bulges stayed frozen at whatever value it had when you stopped, and on rough rock
+  and trees every small bump pushed the body out. Now the push relaxes back to 0 when the bulge is gone (3 agreeing readings, then
+  locked for 2 s so it cannot oscillate), and small bumps are ignored: BumpTolerance (default 18) and MaxBumpPush (default 30)
+  in the .ini let you trade clipping against floating. If you still sit too far from the surface, lower WallGap (30) to 24-26.
+- Verbose=1 now also logs a "fit:" line twice a second while clinging (push measured / applied, position error, HELD or snapped).
+- New INI keys: BumpTolerance, MaxBumpPush, StableHold, IgnoreActors, EntryHeightCheck, EntryMinHeight, ProtrusionAssist (no menu entries).
 - Test of the new geometry outside the game: tools/test_climbprobe.cpp (g++ -std=c++14 -Ifreeclimb-le).
 
 KNOWN ISSUES

@@ -105,9 +105,39 @@ namespace ClimbProbe
 		}
 
 		float push = worst - comfort;
-		if(push < 0.0f) push = 0.0f;
+		if(push < 4.0f) return 0.0f;				// zona morta: afastar o corpo por tao pouco so o poe a flutuar
 		if(push > maxPush) push = maxPush;
 		return push;
+	}
+
+	// ------------------------------------------------------------------------------------------------------------
+	// PONTO DE CHEGADA DA SUBIDA. O topo e medido a wallDist+25, mas o personagem fica mais a frente: numa rampa (telhado,
+	// normal.z 0,7-0,85) a superficie ali e mais alta e ele ficava ENTERRADO. Mede-se no ponto final; tenta-se 40, 32 e 24
+	// unidades alem da parede (borda estreita) e exige-se: nenhum parapeito pelo caminho, chao andavel (normal.z >= 0.6)
+	// a menos de 30 do topo medido, e espaco para a cabeca. Devolve false se nao ha onde ficar de pe.
+	template<class Ray>
+	bool FindStandingSpot(Ray & ray, float fx, float fy, float px, float py, float wallDist, float topZ, float * forward, float * standZ)
+	{
+		static const float stand[3] = { 40.0f, 32.0f, 24.0f };
+		if(!Finite(fx) || !Finite(fy) || !Finite(px) || !Finite(py) || !Finite(wallDist) || !Finite(topZ)) return false;
+		for(int k = 0; k < 3; ++k)
+		{
+			const float f = wallDist + stand[k];
+			const float sx = px + fx * f, sy = py + fy * f;
+
+			const Hit block = ray(px + fx * (wallDist + 8.0f), py + fy * (wallDist + 8.0f), topZ + 35.0f, fx, fy, 0.0f, stand[k] - 8.0f);
+			if(block.hit && block.dist < stand[k] - 9.0f) continue;			// um parapeito entre a borda e o ponto (o raio vai de wall+8 a wall+stand)
+
+			const Hit ground = ray(sx, sy, topZ + 45.0f, 0.0f, 0.0f, -1.0f, 95.0f);
+			if(!ground.hit || !Finite(ground.z) || ground.nz < 0.6f || fabsf(ground.z - topZ) > 30.0f) continue;
+
+			const Hit roof = ray(sx, sy, ground.z + 8.0f, 0.0f, 0.0f, 1.0f, 110.0f);
+			if(roof.hit && roof.dist < 100.0f) continue;
+
+			*forward = f; *standZ = ground.z;
+			return true;
+		}
+		return false;
 	}
 
 	// ------------------------------------------------------------------------------------------------------------
@@ -120,9 +150,26 @@ namespace ClimbProbe
 	inline float StepPush(float current, float target, float dt)
 	{
 		if(!(dt > 0.0f) || !(dt < 1.0f)) dt = 0.016f;
-		if(target > current) { current += 300.0f * dt; if(current > target) current = target; }
-		else if(target < current) { current -= 60.0f * dt; if(current < target) current = target; }
+		if(target > current) { current += 600.0f * dt; if(current > target) current = target; }
+		else if(target < current) { current -= 90.0f * dt; if(current < target) current = target; }
 		return current;
+	}
+
+	// StillPush: PARADO, o afastamento so muda quando 3 sondas seguidas (~1 s) concordam que o valor medido difere do atual por
+	// mais de 6 unidades, e depois de mudar fica bloqueado 2 s. Uma saliencia que esta sempre la leva o corpo para o valor
+	// certo; uma medicao que alterna (aresta, raio no limite) nao faz nada de rapido; e quando a saliencia desaparece o
+	// afastamento volta a 0 (antes ficava congelado no valor que tinha ao parar, e o personagem ficava longe da superficie).
+	struct StillPush { int agree; float lock; };
+
+	inline float StillPushTarget(StillPush * s, float measured, float current, float probeSeconds)
+	{
+		if(s->lock > 0.0f) { s->lock -= probeSeconds; return current; }
+		const float d = measured - current;
+		if(d > -6.0f && d < 6.0f) { s->agree = 0; return current; }
+		if(++s->agree < 3) return current;
+		s->agree = 0;
+		s->lock = 2.0f;
+		return measured;
 	}
 
 	// HoldPosition: parado, so se corrige a posicao/orientacao se o erro passar da zona morta (3 unidades, ~6 graus).
